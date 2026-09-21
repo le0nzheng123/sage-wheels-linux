@@ -1,0 +1,20 @@
+ARG BASE_IMAGE=pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel
+FROM ${BASE_IMAGE}
+
+ARG TORCH_VERSION=2.13.0
+ARG PYTHON_VERSION=3.13
+ARG CUDA_INDEX_URL=https://download.pytorch.org/whl/cu130
+
+ENV PATH=/opt/conda/envs/sage-py313/bin:/opt/conda/bin:${PATH}
+
+RUN conda create -y -n sage-py313 python=${PYTHON_VERSION} \
+    && conda run --no-capture-output -n sage-py313 \
+       python -m pip install --no-cache-dir --upgrade \
+       pip wheel setuptools packaging \
+    && conda run --no-capture-output -n sage-py313 \
+       python -m pip install --no-cache-dir \
+       --index-url "${CUDA_INDEX_URL}" \
+       "torch==${TORCH_VERSION}" \
+    && conda clean -afy
+
+WORKDIR /workspace
