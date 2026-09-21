@@ -1,98 +1,90 @@
-# SageAttention Linux 预编译 Wheel
+# SageAttention Linux Wheels
 
-本项目用于构建适配 ComfyUI 运行环境的 SageAttention 2.x Linux wheel。
+为 ComfyUI 构建 SageAttention 2.2.0 Linux 预编译 wheel。
 
-上游 SageAttention 包含 C++/CUDA 扩展。构建时需要 CUDA Toolkit 和
-`nvcc`，但把已经编译好的 `.whl` 安装到 ComfyUI 运行服务器时，通常不需要
-安装 `nvcc`。
+构建阶段需要 CUDA Toolkit 和 `nvcc`；安装已经编译好的 wheel 时通常不需要
+`nvcc`。
 
-上游项目：
+- [SageAttention 上游项目](https://github.com/thu-ml/SageAttention)
+- [Releases](https://github.com/le0nzheng123/sage-wheels-linux/releases)
+- [构建说明](./BUILD.md)
+- [变更记录](./CHANGE.md)
 
-- [SageAttention](https://github.com/thu-ml/SageAttention)
-- [SageAttention v2.2.0](https://github.com/thu-ml/SageAttention/tree/v2.2.0)
-- [项目变更记录](./CHANGE.md)
-
-## 当前状态
-
-稳定构建流水线已经合并到 `main`。在 GitHub Actions 中运行
-`构建并发布 SageAttention Wheels` 时，请选择：
+## 默认构建配置
 
 ```text
-Select ref: main
-PyTorch:   2.13.0
-Sage ref:  v2.2.0
-SM list:   80 86 89 120
-MAX_JOBS:  1
-Release tag: 留空自动生成
+SageAttention  2.2.0
+Python         3.13
+PyTorch        2.13.0+cu130
+CUDA Toolkit   13.0
+系统基线        Ubuntu 22.04 / Linux
 ```
 
-默认 Release 同时包含：
-
-| Wheel 架构 | 目标 GPU |
-|---:|---|
-| SM80 | A100/A800 |
-| SM86 | RTX 30xx |
-| SM89 | RTX 40xx |
-| SM120 | RTX 50xx/B200 |
-
-Actions 中早期失败的历史记录来自已经修复的旧版构建脚本，不代表当前
-`main` 的状态。当前流水线使用 Ubuntu 22.04、Python 3.13、CUDA 13.0 和
-指定的 PyTorch 版本构建 wheel。
-
-## 为什么要调整 PyTorch/Python 版本
-
-这里的版本调整主要是为了跟随 ComfyUI 的 release 和官方依赖要求，而不是
-单独为了升级 SageAttention。
-
-ComfyUI 官方当前要求和建议包括：
-
-| 组件 | ComfyUI 相关要求 |
-|---|---|
-| Python | Python 3.13 推荐；部分自定义节点不兼容时可以使用 Python 3.12 |
-| PyTorch | PyTorch 2.7 是最低支持版本，建议使用更新版本 |
-| NVIDIA PyTorch | 使用 CUDA 13.0 或更高版本的 PyTorch wheel |
-| CUDA Toolkit / `nvcc` | 普通运行 ComfyUI 不需要；编译 CUDA 扩展时需要 |
-| ComfyUI 依赖 | 以对应 ComfyUI release 的 `requirements.txt` 为准 |
-
-因此，本项目中的 PyTorch 版本不是永久固定的。ComfyUI release、Python、
-PyTorch 或 CUDA 组合发生变化时，应增加匹配的 SageAttention 构建配置。
-
-当前项目保留以下构建配置：
-
-| SageAttention | PyTorch | CUDA | Python | 构建状态 |
-|---|---|---|---|---|
-| 2.2.0 | 2.13.0 | cu130 | 3.13 | 默认配置 |
-| 2.2.0 | 2.14.0 | cu130 | 3.13 | 可选配置，需重新构建和验证 |
-
-其中 `cu130` 表示 PyTorch wheel 搭配 CUDA 13.0 运行库，不代表 ComfyUI
-运行服务器必须安装系统级 `nvcc`。
-
-## GPU 架构范围
-
-SageAttention v2.2.0 上游源码支持以下 CUDA Compute Capability：
-
-| SM | GPU 示例 | 本项目状态 |
+| SM | GPU 示例 | 默认 Release |
 |---:|---|---|
-| 80 | A100/A800 | 支持 |
-| 86 | RTX 3060/3080/3090、A10/A40 | 支持 |
-| 89 | RTX 4090、L40/L40S | 支持 |
-| 90 | H100/H200 | 支持 |
-| 120 | RTX 50xx、B200 | 支持 |
-| 75 | RTX 20xx、T4 | 暂不支持，已从默认矩阵移除 |
+| 80 | A100/A800 | 包含 |
+| 86 | RTX 30xx、A10/A40 | 包含 |
+| 89 | RTX 40xx、L40/L40S | 包含 |
+| 90 | H100/H200 | 脚本支持，默认不构建 |
+| 120 | RTX 50xx、B200 | 包含 |
+| 75 | RTX 20xx、T4 | SageAttention 2.2.0 暂不支持 |
 
-RTX 20xx 的 SM75 不纳入 SageAttention v2.2.0 构建。项目脚本会主动拒绝
-`SM75`，避免生成看似成功但缺少对应 SageAttention CUDA kernel 的 wheel。
+SageAttention 是 Attention 后端，不负责 ComfyUI 多卡调度。
 
-注意：SageAttention 是 Attention 后端，不是多卡调度器。它不会自动把
-ComfyUI 任务拆分到多张 GPU。每个运行进程仍需使用正确的 GPU 和对应 SM
-架构 wheel。
+## GitHub Actions 构建 Release
 
-## Wheel 文件命名
-
-Release 标签格式：
+打开仓库的 `Actions`，选择 `构建并发布 SageAttention Wheels`：
 
 ```text
-sage-<SAGE_VER>-torch-<TORCH_VER>-<CUDA_TAG>-py<PY_VER>
+Select ref   main
+PyTorch     2.13.0
+Sage ref    v2.2.0
+SM list     80 86 89 120
+MAX_JOBS    1
+Release tag 留空自动生成
+```
+
+工作流会依次完成：
+
+```text
+准备 Python 3.13 / CUDA 13.0 builder
+→ 编译四个 SM wheel
+→ 校验 SHA256、动态依赖和 Python import
+→ 上传 artifact
+→ 创建 GitHub Release
+```
+
+GitHub runner 没有 NVIDIA GPU，因此可以完成编译和静态验证，但最终仍建议在
+对应 GPU 上运行一次 ComfyUI 工作流。
+
+## Wheel 文件名
+
+格式：
+
+```text
+sageattention-<版本>-<SM>-<Python tag>-<ABI tag>-<平台>.whl
+```
+
+例如：
+
+```text
+sageattention-2.2.0-120-cp313-cp313-linux_x86_64.whl
+```
+
+| 字段 | 含义 |
+|---|---|
+| `2.2.0` | SageAttention 版本 |
+| `120` | SM120 / RTX 50xx、B200 |
+| 第一个 `cp313` | Python tag：CPython 3.13 |
+| 第二个 `cp313` | ABI tag：CPython 3.13 ABI |
+| `linux_x86_64` | Linux x86_64 平台 |
+
+`cp313-cp313` 是标准 Wheel 命名，不是重复错误。
+
+Release tag 格式：
+
+```text
+sage-<Sage版本>-torch-<PyTorch版本>-<CUDA>-py<Python版本>
 ```
 
 例如：
@@ -101,247 +93,72 @@ sage-<SAGE_VER>-torch-<TORCH_VER>-<CUDA_TAG>-py<PY_VER>
 sage-2.2.0-torch-2.13.0-cu130-py313
 ```
 
-Wheel 文件格式：
+## 本地或服务器构建
 
-```text
-sageattention-<SAGE_VER>-<SM>-cp<PYMM>-cp<PYMM>-linux_x86_64.whl
-```
-
-例如：
-
-```text
-sageattention-2.2.0-86-cp313-cp313-linux_x86_64.whl
-sageattention-2.2.0-89-cp313-cp313-linux_x86_64.whl
-sageattention-2.2.0-120-cp313-cp313-linux_x86_64.whl
-```
-
-文件名中的 `cp313` 表示 Python 3.13 ABI，数字 `86/89/120` 表示目标 GPU
-架构。
-
-## 两种构建环境
-
-### Docker 构建
-
-构建机需要 Docker、网络、足够的磁盘和内存，但不需要显卡，也不需要在
-宿主机安装 `nvcc`：
+Docker 构建，不需要宿主机安装 CUDA Toolkit：
 
 ```bash
-BUILD_BACKEND=docker ./build-all.sh
+BUILD_BACKEND=docker MAX_JOBS=1 ./build-all.sh
 ```
 
-未指定 `BASE_IMAGE` 时，脚本会通过 `prepare-builder.sh` 自动创建或复用：
+脚本会自动创建或复用 Python 3.13 builder。
 
-```text
-Ubuntu 22.04
-CUDA Toolkit 13.0 / nvcc
-Python 3.13
-PyTorch 2.13.0+cu130（或指定的 2.14.0+cu130）
-```
-
-因此普通 Docker 构建不依赖宿主机的 Python、PyTorch 或 CUDA Toolkit。
-
-### 服务器原生构建
-
-如果服务器本身已经是 CUDA devel 环境，也可以不使用 Docker：
+原生构建要求服务器已经安装匹配的 Python、PyTorch、CUDA Toolkit、`nvcc`
+和 C++ 编译器：
 
 ```bash
-BUILD_BACKEND=native ./build-all.sh
+BUILD_BACKEND=native MAX_JOBS=1 ./build-all.sh
 ```
 
-这种方式要求服务器本身已有：
-
-```text
-Python、PyTorch、CUDA Toolkit、nvcc、gcc/g++、git
-```
-
-普通 ComfyUI 运行服务器不适合直接使用 native 构建方式。
-
-### 自动选择
-
-不指定 `BUILD_BACKEND` 时：
+只构建部分架构：
 
 ```bash
-./build-all.sh
+SM_LIST="86 89" MAX_JOBS=1 ./build-all.sh
 ```
 
-脚本会自动选择 Docker 或 native 后端。
-
-## 使用 GitHub Actions 构建 Release
-
-仓库包含 `.github/workflows/build-release.yml`。它会在 GitHub Actions 中
-使用 Docker 构建并发布以下架构的 wheel：
+产物位于：
 
 ```text
-SM80  → A100/A800
-SM86  → RTX 30xx
-SM89  → RTX 40xx
-SM120 → RTX 50xx
+dist/
+├── sageattention-*.whl
+└── SHA256SUMS
 ```
 
-使用方法：
-
-1. 打开仓库的 `Actions`
-2. 选择 `构建并发布 SageAttention Wheels`
-3. 点击 `Run workflow`
-4. `Select ref` 选择 `main`
-5. 保持默认参数即可构建 Python 3.13、PyTorch 2.13.0、CUDA 13.0 版本
-
-工作流默认按顺序构建四种架构，并上传 `.whl`、`SHA256SUMS`，最后自动
-创建 GitHub Release。构建机不需要显卡。
-
-由于官方 PyTorch `devel` 镜像的默认 Python 版本不是固定的 3.13，工作流
-基于 NVIDIA CUDA 13.0 / Ubuntu 22.04 镜像创建 Python 3.13 `venv`，再安装
-匹配的 PyTorch。这样生成的 wheel 才会真正带有 `cp313` ABI，并以 Ubuntu
-22.04 作为二进制兼容基线。
-
-如果要跟随新的 ComfyUI release 使用 PyTorch 2.14.0，可以在工作流输入中
-将 PyTorch 版本改为 `2.14.0`；builder 会在相同 CUDA 13.0 / Python 3.13
-环境中安装 PyTorch 2.14.0。
-
-## 构建默认版本
-
-当前默认配置为 Python 3.13、PyTorch 2.13.0、CUDA 13.0：
+PyTorch 2.14.0 可通过以下方式构建：
 
 ```bash
-SM_LIST="80 86 89 90 120" \
-SAGE_REF="v2.2.0" \
-TORCH_VER="2.13.0" \
-CUDA_TAG="cu130" \
-PY_TAG="cp313" \
-BUILD_BACKEND="docker" \
-MAX_JOBS="1" \
-./build-all.sh
+TORCH_VER="2.14.0" BUILD_BACKEND=docker MAX_JOBS=1 ./build-all.sh
 ```
 
-如果只需要 RTX 30xx 和 RTX 40xx：
+## 安装
 
-```bash
-SM_LIST="86 89" MAX_JOBS="1" ./build-all.sh
-```
+wheel 必须匹配 Python、PyTorch/CUDA 和 GPU SM 架构。
 
-构建结果位于：
-
-```text
-./dist/
-```
-
-脚本还会生成：
-
-```text
-./dist/SHA256SUMS
-```
-
-`build-all.sh` 默认会先清理 `dist/` 中旧的 SageAttention wheel 和
-`SHA256SUMS`，避免把不同 Python/PyTorch 版本的历史产物混入同一个 Release。
-
-## PyTorch 2.14.0 构建配置
-
-PyTorch 2.14.0 配置不会替换默认的 2.13.0 配置。需要跟随新的 ComfyUI
-release 或运行环境时，可以使用：
-
-```bash
-SM_LIST="80 86 89 90 120" \
-SAGE_REF="v2.2.0" \
-TORCH_VER="2.14.0" \
-CUDA_TAG="cu130" \
-PY_TAG="cp313" \
-BUILD_BACKEND="docker" \
-MAX_JOBS="1" \
-./build-all.sh
-```
-
-构建前可以单独创建并检查 builder：
-
-```bash
-TORCH_VER="2.14.0" ./prepare-builder.sh
-```
-
-脚本会输出 Python、PyTorch、Triton 和 `nvcc` 版本。构建脚本也会自动
-检查 Python、PyTorch、CUDA 版本，发现不匹配会停止构建。
-
-## 构建依赖
-
-SageAttention v2.2.0 的构建阶段主要需要：
-
-```text
-Python >= 3.9
-PyTorch >= 2.3.0
-Triton >= 3.0.0
-CUDA Toolkit / nvcc >= 12.0
-C++17 编译器
-packaging、setuptools、wheel
-```
-
-不同 GPU 架构还有更高的 CUDA 最低版本要求：
-
-```text
-SM80   CUDA >= 12.0
-SM86   CUDA >= 12.0
-SM89   CUDA >= 12.4
-SM90   CUDA >= 12.3
-SM120  CUDA >= 12.8
-```
-
-CUDA 13.0 可以覆盖当前项目的全部目标架构。
-
-构建阶段每个并行任务可能需要较多内存。小内存机器建议：
-
-```bash
-MAX_JOBS=1
-```
-
-## 运行时安装
-
-运行机器需要与构建 wheel 匹配：
-
-```text
-Python ABI
-PyTorch 版本
-PyTorch CUDA 构建版本
-GPU SM 架构
-```
-
-例如当前 ComfyUI 环境是 Python 3.13、PyTorch 2.13.0+cu130，并且显卡是
-RTX 3090，应安装 SM86 wheel：
+例如 RTX 30xx 使用 SM86：
 
 ```bash
 python -m pip install --no-deps \
   sageattention-2.2.0-86-cp313-cp313-linux_x86_64.whl
 ```
 
-RTX 4090 应安装 SM89 wheel：
+RTX 40xx 使用 SM89：
 
 ```bash
 python -m pip install --no-deps \
   sageattention-2.2.0-89-cp313-cp313-linux_x86_64.whl
 ```
 
-运行阶段通常不需要：
-
-```text
-CUDA Toolkit
-nvcc
-SageAttention 源码
-```
-
-但运行时需要正确的 NVIDIA 驱动和对应 GPU。没有 GPU 时可以安装 wheel，
-但无法完成真实 CUDA kernel 验证。
-
-## ComfyUI 依赖
-
-SageAttention 只负责 Attention 扩展，不替代 ComfyUI 自身依赖。ComfyUI
-仍应在对应 release 的目录中执行：
+验证：
 
 ```bash
-pip install -r requirements.txt
+python -c "import sageattention; print(sageattention.__file__)"
 ```
 
-`torchvision`、`torchaudio`、`torchsde`、`transformers`、`safetensors` 等
-版本以对应 ComfyUI release 的 `requirements.txt` 为准，不要为了构建
-SageAttention 而盲目升级整个环境。
+ComfyUI 自身依赖仍以对应 release 的 `requirements.txt` 为准。
 
-## 许可证
+## 许可证与致谢
 
-本项目发布的 wheel 是重新打包的
-[SageAttention](https://github.com/thu-ml/SageAttention) 二进制文件，遵循
-Apache-2.0 许可证。本项目中的构建脚本同样遵循 Apache-2.0 许可证。
+SageAttention 上游代码遵循 Apache-2.0 许可证，本项目构建脚本同样遵循
+Apache-2.0 许可证。
+
+感谢 **Codex** 与 **OpenAI** 在代码审查、构建流水线调试和文档整理中的协助。
