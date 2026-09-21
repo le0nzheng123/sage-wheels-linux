@@ -2,14 +2,14 @@
 # build-all.sh — Build wheels for every arch in SM_LIST and generate SHA256SUMS.
 #
 # Variables exported to build.sh:
-#   SAGE_REF       (default: main)
-#   TORCH_VER      (default: 2.12.0)
+#   SAGE_REF       (default: v2.2.0)
+#   TORCH_VER      (default: 2.13.0)
 #   CUDA_TAG       (default: cu130)
-#   PY_TAG         (default: cp312)
-#   BASE_IMAGE     (default: pytorch/pytorch:2.12.0-cuda13.0-cudnn9-devel)
+#   PY_TAG         (default: cp313)
+#   BASE_IMAGE     (default: pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel)
 #   BUILD_BACKEND  (default: auto; values: docker|native|auto)
 #   OUT_DIR        (default: ./dist)
-#   SM_LIST        Space-separated list (default: "86 89 90 120")
+#   SM_LIST        Space-separated list (default: "80 86 89 90 120")
 #
 # On small runners (< 16 GB RAM), parallel builds of the _fused.so link step
 # can OOM. This script runs sequentially to stay safe.
@@ -18,8 +18,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-export SAGE_REF="${SAGE_REF:-main}"
-export BASE_IMAGE="${BASE_IMAGE:-pytorch/pytorch:2.12.0-cuda13.0-cudnn9-devel}"
+export SAGE_REF="${SAGE_REF:-v2.2.0}"
+export BASE_IMAGE="${BASE_IMAGE:-pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel}"
 export BUILD_BACKEND="${BUILD_BACKEND:-auto}"
 export OUT_DIR="${OUT_DIR:-$(pwd)/dist}"
 
@@ -30,7 +30,7 @@ export OUT_DIR="${OUT_DIR:-$(pwd)/dist}"
 [ -n "${CUDA_TAG:-}" ]  && export CUDA_TAG
 [ -n "${PY_TAG:-}" ]    && export PY_TAG
 
-SM_LIST="${SM_LIST:-75 80 86 89 90 120}"
+SM_LIST="${SM_LIST:-80 86 89 90 120}"
 
 mkdir -p "$OUT_DIR"
 
@@ -76,7 +76,7 @@ PY
     _cu="${_rest%%|*}"; _py="${_rest#*|}"
     TORCH_VER="${TORCH_VER:-${_tv:-unknown}}"
     CUDA_TAG="${CUDA_TAG:-cu${_cu:-unknown}}"
-    PY_TAG="${PY_TAG:-${_py:-cp312}}"
+    PY_TAG="${PY_TAG:-${_py:-cp313}}"
 fi
 
 echo

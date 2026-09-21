@@ -4,20 +4,20 @@
 # Usage:
 #   ./build.sh <SM>
 #
-# Where <SM> is the compute capability without the dot: 89, 90, 100, 120, ...
+# Where <SM> is the compute capability without the dot: 80, 86, 89, 90, 120, ...
 #
 # Overridable environment variables:
-#   SAGE_REF       Tag/branch/commit of thu-ml/SageAttention (default: main)
-#   TORCH_VER      Target torch version (default: 2.12.0)
+#   SAGE_REF       Tag/branch/commit of thu-ml/SageAttention (default: v2.2.0)
+#   TORCH_VER      Target torch version (default: 2.13.0)
 #   CUDA_TAG       CUDA tag (default: cu130)
-#   PY_TAG         Python tag (default: cp312)
+#   PY_TAG         Python tag (default: cp313)
 #   BUILD_BACKEND  Build backend selector: docker|native|auto (default: auto)
 #   BASE_IMAGE     Docker image used for the build
-#                  (default: pytorch/pytorch:2.12.0-cuda13.0-cudnn9-devel)
+#                  (default: pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel)
 #   OUT_DIR        Output directory for the wheels (default: ./dist)
 #
 # The resulting wheel is renamed to include the PEP 427 build tag with the SM,
-# e.g.: sageattention-2.2.0-90-cp312-cp312-linux_x86_64.whl
+# e.g.: sageattention-2.2.0-89-cp313-cp313-linux_x86_64.whl
 
 set -euo pipefail
 
@@ -25,18 +25,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SM="${1:?usage: $0 <SM>   e.g. $0 90}"
 
 case "$SM" in
-    75)  ARCH="7.5" ;;
+    75)
+        echo "ERROR: SM75 (RTX 20xx/T4) is intentionally excluded from SageAttention v2.2.0." >&2
+        exit 2
+        ;;
     80)  ARCH="8.0" ;;
     86)  ARCH="8.6" ;;
     89)  ARCH="8.9" ;;
     90)  ARCH="9.0" ;;
-    100) ARCH="10.0" ;;
     120) ARCH="12.0" ;;
     *) echo "ERROR: SM '$SM' not supported. Add it to the case in build.sh." >&2; exit 1 ;;
 esac
 
-SAGE_REF="${SAGE_REF:-main}"
-BASE_IMAGE="${BASE_IMAGE:-pytorch/pytorch:2.12.0-cuda13.0-cudnn9-devel}"
+SAGE_REF="${SAGE_REF:-v2.2.0}"
+BASE_IMAGE="${BASE_IMAGE:-pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel}"
 OUT_DIR="${OUT_DIR:-$(pwd)/dist}"
 MAX_JOBS="${MAX_JOBS:-4}"
 BUILD_BACKEND="${BUILD_BACKEND:-auto}"
@@ -76,18 +78,18 @@ PY
 )"
         _tv="${_detected%%|*}"; _rest="${_detected#*|}"
         _cu="${_rest%%|*}"; _py="${_rest#*|}"
-        TORCH_VER="${TORCH_VER:-${_tv:-2.12.0}}"
+        TORCH_VER="${TORCH_VER:-${_tv:-2.13.0}}"
         CUDA_TAG="${CUDA_TAG:-cu${_cu:-130}}"
-        PY_TAG="${PY_TAG:-${_py:-cp312}}"
+        PY_TAG="${PY_TAG:-${_py:-cp313}}"
     fi
 else
     # Parse "pytorch/pytorch:<torch>-cuda<cu>-..." into defaults.
     _img_tag="${BASE_IMAGE##*:}"
     _img_torch="$(echo "$_img_tag" | sed -nE 's/^([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')"
     _img_cu="$(echo "$_img_tag"    | sed -nE 's/.*cuda([0-9]+)\.([0-9]+).*/\1\2/p')"
-    TORCH_VER="${TORCH_VER:-${_img_torch:-2.12.0}}"
+    TORCH_VER="${TORCH_VER:-${_img_torch:-2.13.0}}"
     CUDA_TAG="${CUDA_TAG:-cu${_img_cu:-130}}"
-    PY_TAG="${PY_TAG:-cp312}"
+    PY_TAG="${PY_TAG:-cp313}"
 fi
 
 mkdir -p "$OUT_DIR"
@@ -111,6 +113,9 @@ if [ "$RESOLVED_BUILD_BACKEND" = "docker" ]; then
         -e MAX_JOBS="$MAX_JOBS" \
         -e SM="$SM" \
         -e SAGE_REF="$SAGE_REF" \
+        -e EXPECTED_TORCH_VER="$TORCH_VER" \
+        -e EXPECTED_CUDA_TAG="$CUDA_TAG" \
+        -e EXPECTED_PY_TAG="$PY_TAG" \
         -v "$OUT_DIR:/out" \
         -v "$SCRIPT_DIR/build-wheel.sh:/build-wheel.sh:ro" \
         "$BASE_IMAGE" bash /build-wheel.sh
@@ -120,6 +125,9 @@ else
     export SAGE_REF
     export OUT_DIR
     export MAX_JOBS
+    export EXPECTED_TORCH_VER="$TORCH_VER"
+    export EXPECTED_CUDA_TAG="$CUDA_TAG"
+    export EXPECTED_PY_TAG="$PY_TAG"
     bash "$SCRIPT_DIR/build-wheel.sh"
 fi
 
