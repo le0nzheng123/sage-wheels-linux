@@ -130,6 +130,36 @@ Python、PyTorch、CUDA Toolkit、nvcc、gcc/g++、git
 
 脚本会自动选择 Docker 或 native 后端。
 
+## 使用 GitHub Actions 构建 Release
+
+仓库包含 `.github/workflows/build-release.yml`。它会在 GitHub Actions 中
+使用 Docker 构建并发布以下架构的 wheel：
+
+```text
+SM80  → A100/A800
+SM86  → RTX 30xx
+SM89  → RTX 40xx
+SM120 → RTX 50xx
+```
+
+使用方法：
+
+1. 将工作流合并到 `main`
+2. 打开仓库的 `Actions`
+3. 选择 `构建并发布 SageAttention Wheels`
+4. 点击 `Run workflow`
+5. 默认使用 Python 3.13、PyTorch 2.13.0、CUDA 13.0
+
+工作流默认按顺序构建四种架构，并上传 `.whl`、`SHA256SUMS`，最后自动
+创建 GitHub Release。构建机不需要显卡。
+
+如果要跟随新的 ComfyUI release 使用 PyTorch 2.14.0，可以在工作流输入中
+将 PyTorch 版本改为 `2.14.0`。工作流会使用对应的：
+
+```text
+pytorch/pytorch:2.14.0-cuda13.0-cudnn9-devel
+```
+
 ## 构建默认版本
 
 当前默认配置为 Python 3.13、PyTorch 2.13.0、CUDA 13.0：
