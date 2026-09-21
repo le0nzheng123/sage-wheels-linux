@@ -104,7 +104,19 @@ sage-2.2.0-torch-2.13.0-cu130-py313
 Wheel 文件格式：
 
 ```text
+sageattention-<SAGE_VER>-<SM>-<PYTHON_TAG>-<ABI_TAG>-<PLATFORM_TAG>.whl
+```
+
+本项目对应的实际格式为：
+
+```text
 sageattention-<SAGE_VER>-<SM>-cp<PYMM>-cp<PYMM>-linux_x86_64.whl
+```
+
+这遵循 Python Wheel 的标准字段顺序：
+
+```text
+distribution-version-build_tag-python_tag-abi_tag-platform_tag.whl
 ```
 
 例如：
@@ -115,8 +127,27 @@ sageattention-2.2.0-89-cp313-cp313-linux_x86_64.whl
 sageattention-2.2.0-120-cp313-cp313-linux_x86_64.whl
 ```
 
-文件名中的 `cp313` 表示 Python 3.13 ABI，数字 `86/89/120` 表示目标 GPU
-架构。
+以 SM120 文件为例：
+
+```text
+sageattention-2.2.0-120-cp313-cp313-linux_x86_64.whl
+│             │     │    │     │
+│             │     │    │     └─ platform tag：Linux x86_64
+│             │     │    └─────── ABI tag：CPython 3.13 ABI
+│             │     └──────────── Python tag：CPython 3.13
+│             └────────────────── build tag：SM120
+└──────────────────────────────── distribution / version
+```
+
+两个 `cp313` 含义不同：
+
+| 位置 | Wheel 字段 | 含义 |
+|---|---|---|
+| 第一个 `cp313` | Python tag | 需要 CPython 3.13 |
+| 第二个 `cp313` | ABI tag | 使用 CPython 3.13 二进制 ABI |
+
+因此 `cp313-cp313` 是标准且正常的 Wheel 命名，不是重复字段。数字
+`80/86/89/120` 是本项目放入 Wheel build tag 的目标 GPU SM 架构。
 
 ## 两种构建环境
 
