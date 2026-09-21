@@ -157,7 +157,7 @@ jobs:
           done
 
       - name: 上传构建产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sageattention-wheels
           path: dist/
@@ -174,7 +174,7 @@ jobs:
 
     steps:
       - name: 下载构建产物
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sageattention-wheels
           path: dist
@@ -190,13 +190,18 @@ jobs:
           set -euo pipefail
           (cd dist && sha256sum -c SHA256SUMS)
 
-          sage_version="$(find dist -maxdepth 1 -name 'sageattention-*.whl' -print -quit \
-            | sed -nE 's#.*sageattention-([0-9.]+)-.*#\1#')"
+          wheel_path="$(find dist -maxdepth 1 -name 'sageattention-*.whl' -print -quit)"
+          wheel_name="${wheel_path##*/}"
+          sage_version="${wheel_name#sageattention-}"
+          sage_version="${sage_version%%-*}"
           torch_version="${INPUT_TORCH_VERSION:-2.13.0}"
           release_tag="${INPUT_RELEASE_TAG:-}"
           sm_list="${INPUT_SM_LIST:-80 86 89 120}"
 
-          [ -n "$sage_version" ] || { echo "Unable to detect SageAttention version" >&2; exit 1; }
+          [[ "$sage_version" =~ ^[0-9]+(\.[0-9]+)+$ ]] || {
+            echo "Unable to detect SageAttention version from: $wheel_name" >&2
+            exit 1
+          }
           [[ "$torch_version" =~ ^2\.(13|14)\.0$ ]] || { echo "Invalid torch_version" >&2; exit 1; }
           [[ "$release_tag" =~ ^[A-Za-z0-9._-]*$ ]] || { echo "Invalid release_tag" >&2; exit 1; }
           [[ "$sm_list" =~ ^(80|86|89|90|120)(\ (80|86|89|90|120))*$ ]] || { echo "Invalid sm_list" >&2; exit 1; }
