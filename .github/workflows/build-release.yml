@@ -67,12 +67,22 @@ jobs:
             echo "BASE_IMAGE=pytorch/pytorch:${torch_version}-cuda13.0-cudnn9-devel"
           } >> "$GITHUB_ENV"
 
-      - name: 检查 Docker 构建镜像
+      - name: 构建 Python 3.13 构建镜像
         shell: bash
         run: |
           set -euo pipefail
           docker pull "$BASE_IMAGE"
-          docker run --rm "$BASE_IMAGE" \
+          build_image="sageattention-builder:${GITHUB_RUN_ID}"
+          docker build \
+            --build-arg "BASE_IMAGE=$BASE_IMAGE" \
+            --build-arg "TORCH_VERSION=$TORCH_VER" \
+            --build-arg "PYTHON_VERSION=3.13" \
+            --build-arg "CUDA_INDEX_URL=https://download.pytorch.org/whl/cu130" \
+            --tag "$build_image" \
+            --file .github/docker/Dockerfile.py313 \
+            .
+          echo "BUILD_IMAGE=$build_image" >> "$GITHUB_ENV"
+          docker run --rm "$build_image" \
             python -c 'import sys, torch; print(sys.version); print(torch.__version__); print(torch.version.cuda)'
 
       - name: 构建四种 GPU 架构
@@ -81,7 +91,7 @@ jobs:
           set -euo pipefail
           chmod +x build.sh build-all.sh build-wheel.sh
           BUILD_BACKEND=docker \
-          BASE_IMAGE="$BASE_IMAGE" \
+          BASE_IMAGE="$BUILD_IMAGE" \
           SAGE_REF="$SAGE_REF" \
           TORCH_VER="$TORCH_VER" \
           CUDA_TAG="$CUDA_TAG" \

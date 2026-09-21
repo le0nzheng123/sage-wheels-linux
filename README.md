@@ -153,6 +153,10 @@ SM120 → RTX 50xx
 工作流默认按顺序构建四种架构，并上传 `.whl`、`SHA256SUMS`，最后自动
 创建 GitHub Release。构建机不需要显卡。
 
+由于官方 PyTorch `devel` 镜像的默认 Python 版本可能不是 3.13，工作流
+会在 CUDA devel 镜像内额外创建 Python 3.13 环境，并重新安装匹配的
+PyTorch 版本。这样生成的 wheel 才会真正带有 `cp313` ABI。
+
 如果要跟随新的 ComfyUI release 使用 PyTorch 2.14.0，可以在工作流输入中
 将 PyTorch 版本改为 `2.14.0`。工作流会使用对应的：
 
