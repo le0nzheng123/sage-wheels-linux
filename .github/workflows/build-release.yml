@@ -64,7 +64,7 @@ jobs:
             echo "SAGE_REF=$sage_ref"
             echo "SM_LIST=$sm_list"
             echo "MAX_JOBS=$max_jobs"
-            echo "BASE_IMAGE=pytorch/pytorch:${torch_version}-cuda13.0-cudnn9-devel"
+            echo "BASE_IMAGE=nvidia/cuda:13.0.0-devel-ubuntu24.04"
           } >> "$GITHUB_ENV"
 
       - name: 构建 Python 3.13 构建镜像
