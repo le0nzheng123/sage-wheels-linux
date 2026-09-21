@@ -56,6 +56,9 @@ Linux
 - 修复不同构建版本的旧 wheel 可能混入同一 Release 的问题。
 - 移除 apt、git fetch 等关键操作中的静默失败处理。
 - 统一使用 `python -m pip`，避免 `python` 与 `pip` 指向不同环境。
+- 修复 Release 阶段使用 `sed -n` 却未输出匹配结果，导致成功构建的 wheel
+  无法创建 GitHub Release。
+- 更新 artifact 上传和下载 actions，避免旧 Node.js runtime 弃用警告。
 
 ### 使用方法
 
