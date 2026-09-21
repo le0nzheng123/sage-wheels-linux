@@ -12,8 +12,8 @@
 #   CUDA_TAG       CUDA tag (default: cu130)
 #   PY_TAG         Python tag (default: cp313)
 #   BUILD_BACKEND  Build backend selector: docker|native|auto (default: auto)
-#   BASE_IMAGE     Docker image used for the build
-#                  (default: pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel)
+#   BASE_IMAGE     Docker image used for the build. If omitted in Docker mode,
+#                  prepare-builder.sh creates a Python 3.13 builder automatically.
 #   OUT_DIR        Output directory for the wheels (default: ./dist)
 #
 # The resulting wheel is renamed to include the PEP 427 build tag with the SM,
@@ -38,10 +38,11 @@ case "$SM" in
 esac
 
 SAGE_REF="${SAGE_REF:-v2.2.0}"
-BASE_IMAGE="${BASE_IMAGE:-pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel}"
+BASE_IMAGE="${BASE_IMAGE:-}"
 OUT_DIR="${OUT_DIR:-$(pwd)/dist}"
 MAX_JOBS="${MAX_JOBS:-4}"
 BUILD_BACKEND="${BUILD_BACKEND:-auto}"
+AUTO_BUILDER=0
 
 case "$BUILD_BACKEND" in
     docker|native|auto) ;;
@@ -57,6 +58,19 @@ if [ "$BUILD_BACKEND" = "auto" ]; then
     else
         RESOLVED_BUILD_BACKEND="docker"
     fi
+fi
+
+if [ "$RESOLVED_BUILD_BACKEND" = "docker" ] && [ -z "$BASE_IMAGE" ]; then
+    TORCH_VER="${TORCH_VER:-2.13.0}"
+    CUDA_TAG="${CUDA_TAG:-cu130}"
+    PY_TAG="${PY_TAG:-cp313}"
+    BASE_IMAGE="$(
+        TORCH_VER="$TORCH_VER" \
+        CUDA_TAG="$CUDA_TAG" \
+        PY_TAG="$PY_TAG" \
+        "$SCRIPT_DIR/prepare-builder.sh"
+    )"
+    AUTO_BUILDER=1
 fi
 
 # Auto-detect TORCH_VER / CUDA_TAG / PY_TAG. In native mode they come from the
@@ -83,7 +97,7 @@ PY
         PY_TAG="${PY_TAG:-${_py:-cp313}}"
     fi
 else
-    # Parse "pytorch/pytorch:<torch>-cuda<cu>-..." into defaults.
+    # Parse "pytorch/pytorch:<torch>-cuda<cu>-..." when possible.
     _img_tag="${BASE_IMAGE##*:}"
     _img_torch="$(echo "$_img_tag" | sed -nE 's/^([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')"
     _img_cu="$(echo "$_img_tag"    | sed -nE 's/.*cuda([0-9]+)\.([0-9]+).*/\1\2/p')"
@@ -101,10 +115,12 @@ echo "    TORCH_VER  = $TORCH_VER"
 echo "    CUDA_TAG   = $CUDA_TAG"
 echo "    PY_TAG     = $PY_TAG"
 echo "    BUILD_BACKEND = $RESOLVED_BUILD_BACKEND"
-echo "    BASE_IMAGE = $BASE_IMAGE"
+echo "    BASE_IMAGE = ${BASE_IMAGE:-native environment}"
 echo "    OUT_DIR    = $OUT_DIR"
 
 if [ "$RESOLVED_BUILD_BACKEND" = "docker" ]; then
+    SKIP_APT_VALUE="${SKIP_APT:-$AUTO_BUILDER}"
+    SKIP_PIP_DEPS_VALUE="${SKIP_PIP_DEPS:-$AUTO_BUILDER}"
     docker run --rm \
         -e PIP_BREAK_SYSTEM_PACKAGES=1 \
         -e PIP_NO_CACHE_DIR=1 \
@@ -116,6 +132,8 @@ if [ "$RESOLVED_BUILD_BACKEND" = "docker" ]; then
         -e EXPECTED_TORCH_VER="$TORCH_VER" \
         -e EXPECTED_CUDA_TAG="$CUDA_TAG" \
         -e EXPECTED_PY_TAG="$PY_TAG" \
+        -e SKIP_APT="$SKIP_APT_VALUE" \
+        -e SKIP_PIP_DEPS="$SKIP_PIP_DEPS_VALUE" \
         -v "$OUT_DIR:/out" \
         -v "$SCRIPT_DIR/build-wheel.sh:/build-wheel.sh:ro" \
         "$BASE_IMAGE" bash /build-wheel.sh

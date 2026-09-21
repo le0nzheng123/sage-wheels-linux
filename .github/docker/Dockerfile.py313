@@ -1,20 +1,30 @@
-ARG BASE_IMAGE=pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel
+ARG BASE_IMAGE=nvidia/cuda:13.0.0-devel-ubuntu22.04
 FROM ${BASE_IMAGE}
 
 ARG TORCH_VERSION=2.13.0
 ARG PYTHON_VERSION=3.13
 ARG CUDA_INDEX_URL=https://download.pytorch.org/whl/cu130
 
-ENV PATH=/opt/conda/envs/sage-py313/bin:/opt/conda/bin:${PATH}
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN conda create -y -n sage-py313 python=${PYTHON_VERSION} \
-    && conda run --no-capture-output -n sage-py313 \
-       python -m pip install --no-cache-dir --upgrade \
-       pip wheel setuptools packaging \
-    && conda run --no-capture-output -n sage-py313 \
-       python -m pip install --no-cache-dir \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       software-properties-common ca-certificates curl git build-essential \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       python${PYTHON_VERSION} python${PYTHON_VERSION}-dev \
+       python${PYTHON_VERSION}-venv \
+    && python${PYTHON_VERSION} -m venv /opt/sage-py313 \
+    && /opt/sage-py313/bin/python -m pip install --no-cache-dir --upgrade \
+       pip wheel setuptools packaging ninja auditwheel \
+    && /opt/sage-py313/bin/python -m pip install --no-cache-dir \
        --index-url "${CUDA_INDEX_URL}" \
        "torch==${TORCH_VERSION}" \
-    && conda clean -afy
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PATH=/opt/sage-py313/bin:${PATH}
+
+LABEL io.github.le0nzheng123.sage-wheels-builder="true"
 
 WORKDIR /workspace

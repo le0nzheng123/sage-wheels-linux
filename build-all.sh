@@ -6,10 +6,12 @@
 #   TORCH_VER      (default: 2.13.0)
 #   CUDA_TAG       (default: cu130)
 #   PY_TAG         (default: cp313)
-#   BASE_IMAGE     (default: pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel)
+#   BASE_IMAGE     Optional prebuilt Docker image. When omitted, build.sh
+#                  creates/reuses the Python 3.13 builder automatically.
 #   BUILD_BACKEND  (default: auto; values: docker|native|auto)
 #   OUT_DIR        (default: ./dist)
 #   SM_LIST        Space-separated list (default: "80 86 89 90 120")
+#   CLEAN_OUT_DIR  Remove old SageAttention wheels/checksums first (default: 1)
 #
 # On small runners (< 16 GB RAM), parallel builds of the _fused.so link step
 # can OOM. This script runs sequentially to stay safe.
@@ -19,7 +21,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 export SAGE_REF="${SAGE_REF:-v2.2.0}"
-export BASE_IMAGE="${BASE_IMAGE:-pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel}"
+export BASE_IMAGE="${BASE_IMAGE:-}"
 export BUILD_BACKEND="${BUILD_BACKEND:-auto}"
 export OUT_DIR="${OUT_DIR:-$(pwd)/dist}"
 
@@ -31,8 +33,14 @@ export OUT_DIR="${OUT_DIR:-$(pwd)/dist}"
 [ -n "${PY_TAG:-}" ]    && export PY_TAG
 
 SM_LIST="${SM_LIST:-80 86 89 90 120}"
+CLEAN_OUT_DIR="${CLEAN_OUT_DIR:-1}"
 
 mkdir -p "$OUT_DIR"
+
+if [ "$CLEAN_OUT_DIR" = "1" ]; then
+    find "$OUT_DIR" -maxdepth 1 -type f \
+        \( -name 'sageattention-*.whl' -o -name 'SHA256SUMS' \) -delete
+fi
 
 echo "==================================="
 echo "Building SageAttention wheels"
@@ -40,13 +48,19 @@ echo "  SAGE_REF   = $SAGE_REF"
 echo "  TORCH_VER  = ${TORCH_VER:-auto}"
 echo "  CUDA_TAG   = ${CUDA_TAG:-auto}"
 echo "  PY_TAG     = ${PY_TAG:-auto}"
-echo "  BASE_IMAGE = $BASE_IMAGE"
+echo "  BASE_IMAGE = ${BASE_IMAGE:-auto Python 3.13 builder}"
 echo "  BUILD_BACKEND = $BUILD_BACKEND"
 echo "  SM_LIST    = $SM_LIST"
 echo "  OUT_DIR    = $OUT_DIR"
 echo "==================================="
 
-for sm in $SM_LIST; do
+read -r -a SM_VALUES <<< "$SM_LIST"
+if [ "${#SM_VALUES[@]}" -eq 0 ]; then
+    echo "ERROR: SM_LIST must contain at least one architecture" >&2
+    exit 1
+fi
+
+for sm in "${SM_VALUES[@]}"; do
     echo
     echo ">>> sm${sm}"
     ./build.sh "$sm"

@@ -1,0 +1,37 @@
+name: 校验构建脚本
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Shell 语法检查
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n build.sh build-all.sh build-wheel.sh prepare-builder.sh
+
+      - name: ShellCheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          shellcheck build.sh build-all.sh build-wheel.sh prepare-builder.sh
+
+      - name: Dockerfile 静态检查
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --check \
+            --file .github/docker/Dockerfile.py313 \
+            .
