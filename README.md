@@ -10,6 +10,34 @@
 
 - [SageAttention](https://github.com/thu-ml/SageAttention)
 - [SageAttention v2.2.0](https://github.com/thu-ml/SageAttention/tree/v2.2.0)
+- [项目变更记录](./CHANGE.md)
+
+## 当前状态
+
+稳定构建流水线已经合并到 `main`。在 GitHub Actions 中运行
+`构建并发布 SageAttention Wheels` 时，请选择：
+
+```text
+Select ref: main
+PyTorch:   2.13.0
+Sage ref:  v2.2.0
+SM list:   80 86 89 120
+MAX_JOBS:  1
+Release tag: 留空自动生成
+```
+
+默认 Release 同时包含：
+
+| Wheel 架构 | 目标 GPU |
+|---:|---|
+| SM80 | A100/A800 |
+| SM86 | RTX 30xx |
+| SM89 | RTX 40xx |
+| SM120 | RTX 50xx/B200 |
+
+Actions 中早期失败的历史记录来自已经修复的旧版构建脚本，不代表当前
+`main` 的状态。当前流水线使用 Ubuntu 22.04、Python 3.13、CUDA 13.0 和
+指定的 PyTorch 版本构建 wheel。
 
 ## 为什么要调整 PyTorch/Python 版本
 
@@ -152,11 +180,11 @@ SM120 → RTX 50xx
 
 使用方法：
 
-1. 将工作流合并到 `main`
-2. 打开仓库的 `Actions`
-3. 选择 `构建并发布 SageAttention Wheels`
-4. 点击 `Run workflow`
-5. 默认使用 Python 3.13、PyTorch 2.13.0、CUDA 13.0
+1. 打开仓库的 `Actions`
+2. 选择 `构建并发布 SageAttention Wheels`
+3. 点击 `Run workflow`
+4. `Select ref` 选择 `main`
+5. 保持默认参数即可构建 Python 3.13、PyTorch 2.13.0、CUDA 13.0 版本
 
 工作流默认按顺序构建四种架构，并上传 `.whl`、`SHA256SUMS`，最后自动
 创建 GitHub Release。构建机不需要显卡。
