@@ -1,0 +1,141 @@
+name: 构建并发布 SageAttention Wheels
+
+on:
+  workflow_dispatch:
+    inputs:
+      torch_version:
+        description: "PyTorch 版本"
+        required: true
+        default: "2.13.0"
+        type: string
+      sage_ref:
+        description: "SageAttention 版本或 commit"
+        required: true
+        default: "v2.2.0"
+        type: string
+      sm_list:
+        description: "目标 GPU 架构，空格分隔"
+        required: true
+        default: "80 86 89 120"
+        type: string
+      max_jobs:
+        description: "单个架构的并行编译任务数"
+        required: true
+        default: "1"
+        type: string
+      release_tag:
+        description: "可选：自定义 Release tag；留空则自动生成"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建 SageAttention Wheels
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      CUDA_TAG: cu130
+      PY_TAG: cp313
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 解析构建配置
+        shell: bash
+        run: |
+          set -euo pipefail
+          torch_version='${{ inputs.torch_version }}'
+          sage_ref='${{ inputs.sage_ref }}'
+          sm_list='${{ inputs.sm_list }}'
+          max_jobs='${{ inputs.max_jobs }}'
+
+          : "${torch_version:=2.13.0}"
+          : "${sage_ref:=v2.2.0}"
+          : "${sm_list:=80 86 89 120}"
+          : "${max_jobs:=1}"
+
+          {
+            echo "TORCH_VER=$torch_version"
+            echo "SAGE_REF=$sage_ref"
+            echo "SM_LIST=$sm_list"
+            echo "MAX_JOBS=$max_jobs"
+            echo "BASE_IMAGE=pytorch/pytorch:${torch_version}-cuda13.0-cudnn9-devel"
+          } >> "$GITHUB_ENV"
+
+      - name: 检查 Docker 构建镜像
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$BASE_IMAGE"
+          docker run --rm "$BASE_IMAGE" \
+            python -c 'import sys, torch; print(sys.version); print(torch.__version__); print(torch.version.cuda)'
+
+      - name: 构建四种 GPU 架构
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x build.sh build-all.sh build-wheel.sh
+          BUILD_BACKEND=docker \
+          BASE_IMAGE="$BASE_IMAGE" \
+          SAGE_REF="$SAGE_REF" \
+          TORCH_VER="$TORCH_VER" \
+          CUDA_TAG="$CUDA_TAG" \
+          PY_TAG="$PY_TAG" \
+          SM_LIST="$SM_LIST" \
+          MAX_JOBS="$MAX_JOBS" \
+          ./build-all.sh
+
+          test -n "$(find dist -maxdepth 1 -name 'sageattention-*.whl' -print -quit)"
+          ls -lh dist
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: sageattention-wheels
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: 创建 GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: sageattention-wheels
+          path: dist
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sage_version="$(find dist -maxdepth 1 -name 'sageattention-*.whl' -print -quit \
+            | sed -nE 's#.*sageattention-([0-9.]+)-.*#\1#')"
+          torch_version='${{ inputs.torch_version }}'
+          release_tag='${{ inputs.release_tag }}'
+          : "${torch_version:=2.13.0}"
+
+          if [ -z "$release_tag" ]; then
+            release_tag="sage-${sage_version}-torch-${torch_version}-cu130-py313"
+          fi
+
+          echo "Creating release: $release_tag"
+          gh release create "$release_tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$release_tag" \
+            --target "$GITHUB_SHA" \
+            --notes "SageAttention ${sage_version}; PyTorch ${torch_version}+cu130; Python 3.13; SM80/SM86/SM89/SM120." \
+            dist/*
