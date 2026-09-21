@@ -29,23 +29,26 @@ WHEEL_TMP="${WHEEL_TMP:-/tmp/wheel}"
 
 mkdir -p "$OUT_DIR"
 
-if [ -z "${SKIP_APT:-}" ] && command -v apt-get >/dev/null 2>&1; then
+if [ "${SKIP_APT:-0}" != "1" ] && command -v apt-get >/dev/null 2>&1; then
     echo "==> apt deps"
     if [ "$(id -u)" -eq 0 ]; then
-        apt-get update -qq || true
-        apt-get install -y -qq --no-install-recommends git ca-certificates || true
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends git ca-certificates
     elif command -v sudo >/dev/null 2>&1; then
-        sudo apt-get update -qq || true
-        sudo apt-get install -y -qq --no-install-recommends git ca-certificates || true
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends git ca-certificates
     else
         echo "    non-root and sudo not available; skipping apt install"
     fi
 fi
 
-if [ -z "${SKIP_PIP_DEPS:-}" ]; then
+if [ "${SKIP_PIP_DEPS:-0}" != "1" ]; then
     echo "==> pip deps"
-    pip install -q --upgrade pip wheel setuptools
+    python -m pip install -q --upgrade pip wheel setuptools
 fi
+
+command -v git
+command -v python
 
 echo "==> clone thu-ml/SageAttention @ $SAGE_REF"
 if [ ! -d "$SRC_DIR/.git" ]; then
@@ -54,7 +57,7 @@ if [ ! -d "$SRC_DIR/.git" ]; then
 fi
 
 cd "$SRC_DIR"
-git fetch --all --tags -q || true
+git fetch --all --tags -q
 git checkout "$SAGE_REF"
 echo "==> clean stale build artifacts from previous SM builds"
 git clean -fdx
@@ -62,11 +65,15 @@ git reset --hard HEAD
 echo "    commit: $(git rev-parse HEAD)"
 
 echo "==> torch sanity"
+command -v nvcc
+nvcc --version
 read -r ACTUAL_TORCH ACTUAL_CUDA ACTUAL_PY <<EOF
 $(python - <<'PY'
 import sys
 import torch
+from torch.utils.cpp_extension import CUDA_HOME
 print(torch.__version__.split("+")[0], (torch.version.cuda or "").replace(".", ""), f"cp{sys.version_info.major}{sys.version_info.minor}")
+print(f"CUDA_HOME={CUDA_HOME}", file=sys.stderr)
 PY
 )
 EOF
@@ -91,7 +98,7 @@ fi
 echo "==> pip wheel (TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST, MAX_JOBS=$MAX_JOBS)"
 mkdir -p "$WHEEL_TMP"
 rm -f "$WHEEL_TMP"/sageattention-*.whl
-pip wheel . --no-build-isolation --no-deps -w "$WHEEL_TMP"
+python -m pip wheel . --no-build-isolation --no-deps -w "$WHEEL_TMP"
 
 shopt -s nullglob
 wheels=( "$WHEEL_TMP"/sageattention-*.whl )

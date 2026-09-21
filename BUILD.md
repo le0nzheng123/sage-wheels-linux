@@ -4,8 +4,9 @@ Step-by-step to generate a new release of wheels.
 
 ## Requirements
 
-- **No GPU required.** SageAttention only needs the CUDA toolkit (NVCC) at
-  build time, which ships with the `pytorch/pytorch:*-devel` base image.
+- **No GPU required.** In Docker mode, `prepare-builder.sh` creates an Ubuntu
+  22.04 image with CUDA Toolkit 13.0, NVCC, Python 3.13 and the selected
+  PyTorch version.
 - ~6 GB of free RAM per architecture being built (the `_fused.so` link step
   is memory-hungry). On small runners (4–8 GB) build one arch at a time.
 - Docker **or** a host that already has PyTorch + NVCC (native backend).
@@ -40,18 +41,15 @@ SAGE_REF="v2.2.0" \
 TORCH_VER="2.14.0" \
 CUDA_TAG="cu130" \
 PY_TAG="cp313" \
-BASE_IMAGE="pytorch/pytorch:2.14.0-cuda13.0-cudnn9-devel" \
 BUILD_BACKEND="docker" \
 MAX_JOBS="1" \
 ./build-all.sh
 ```
 
-Before building, verify that the image really contains the intended versions:
+To prepare and verify the builder separately:
 
 ```bash
-docker run --rm \
-  pytorch/pytorch:2.14.0-cuda13.0-cudnn9-devel \
-  python -c 'import sys, torch; print(sys.version); print(torch.__version__); print(torch.version.cuda)'
+TORCH_VER="2.14.0" ./prepare-builder.sh
 ```
 
 Expected output is Python 3.13, PyTorch 2.14.0, and CUDA 13.0. The build
@@ -59,17 +57,19 @@ scripts also perform this consistency check and stop on a mismatch.
 
 ## Version auto-detection
 
-`TORCH_VER`, `CUDA_TAG` and `PY_TAG` (used only for the **release tag**, not
-for the wheel filename) are detected automatically:
+`TORCH_VER`, `CUDA_TAG` and `PY_TAG` are used for builder selection and strict
+environment checks:
 
 - **Native backend**: read from the running Python interpreter (`torch.__version__`,
   `torch.version.cuda`, `sys.version_info`).
-- **Docker backend**: parsed from `BASE_IMAGE` (e.g. `pytorch/pytorch:2.13.0-cuda13.0-...`
-  → `TORCH_VER=2.13.0`, `CUDA_TAG=cu130`).
+- **Docker backend without `BASE_IMAGE`**: defaults to PyTorch 2.13.0,
+  CUDA 13.0 and Python 3.13, then creates/reuses the matching builder.
+- **Docker backend with `BASE_IMAGE`**: uses the provided image and validates
+  its actual Python, PyTorch and CUDA versions before compiling.
 
-Export any of them explicitly to override. This means a pod sharing the same
-base image as `comfyui-docker` will produce a correctly-tagged release without
-extra configuration.
+Export values explicitly only when they match the real interpreter and CUDA
+toolchain. The build stops instead of producing a misleading wheel when the
+declared Python, PyTorch or CUDA version differs from the actual environment.
 
 ## Tuning environment variables
 
@@ -84,8 +84,7 @@ A few knobs that often matter when running on different hosts:
   Higher values shorten the build but risk OOM kills during link.
 - **`PIP_BREAK_SYSTEM_PACKAGES=1`** — required on Debian 12+ / Ubuntu 24.04
   images that ship Python with [PEP 668][pep668] enabled, where `pip install`
-  refuses to touch the system interpreter. Most `pytorch/pytorch:*-devel`
-  images are already configured to allow it, but if you see
+  refuses to touch the system interpreter. If you see
   `error: externally-managed-environment`, export this before running the
   build:
 
@@ -106,8 +105,8 @@ A few knobs that often matter when running on different hosts:
 
 Works on any pod, with or without GPU. The cheapest CPU-only tier
 (~$0.05/h) is enough for the build itself. If the pod is already a
-`pytorch/pytorch:*-devel` container, prefer `BUILD_BACKEND=native` — it skips
-the extra Docker-in-Docker layer.
+CUDA devel container with Python, PyTorch and NVCC already installed, prefer
+`BUILD_BACKEND=native` — it skips the extra Docker-in-Docker layer.
 
 ### 1. Provision
 
@@ -115,8 +114,9 @@ RunPod or Vast.ai with:
 - ≥ 4 vCPU
 - ≥ 16 GB RAM (to build all archs in one go) or 8 GB (sequential).
 - ≥ 30 GB of ephemeral disk
-- Base image: any Ubuntu 22.04 / 24.04 with Docker pre-installed, **or** a
-  `pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel` container for native builds.
+- Base image: any Linux host with Docker pre-installed, **or** a compatible
+  CUDA devel container for native builds. Wheels intended for Ubuntu 22.04
+  should be built on Ubuntu 22.04 or an older compatible userspace.
 
 ### 2. Clone and build
 
@@ -220,9 +220,8 @@ allocated.
 
 ## Option C — Native build inside a CUDA cloud pod (no Docker)
 
-Use this when your pod is already a container based on
-`pytorch/pytorch:*-devel` or similar, and you don't want to install/run Docker
-inside it. Provision a pod with the right CUDA image and run:
+Use this when your pod already contains Python 3.13, the target PyTorch build,
+CUDA Toolkit/NVCC and a C++ compiler, and you don't want Docker-in-Docker:
 
 ```bash
 apt-get update && apt-get install -y git
@@ -243,19 +242,19 @@ Before publishing, it's wise to smoke-test at least one of the wheels on a
 pod with the matching GPU arch:
 
 ```bash
+BUILDER_IMAGE="$(./prepare-builder.sh)"
 docker run --rm --gpus all -v $PWD/dist:/wheels \
-    pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel bash -c '
-        PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-deps /wheels/sageattention-2.2.0-90-*.whl &&
-        python -c "import sageattention; print(sageattention.__version__)" &&
+    "$BUILDER_IMAGE" bash -c '
+        pip install --no-deps /wheels/sageattention-2.2.0-90-*.whl &&
+        python -c "import sageattention; print(sageattention.__file__)" &&
         python -c "import torch; from sageattention import sageattn; print(\"sageattn OK\")"
     '
 ```
 
 ## Updating to a new Sage version
 
-1. Edit `build.sh`: set `SAGE_REF` to the desired tag/commit of
-   `thu-ml/SageAttention`.
-2. If torch or CUDA also changed, update `BASE_IMAGE` in `build.sh` and the
-   `TORCH_VER` / `CUDA_TAG` defaults in `build-all.sh`.
+1. Set `SAGE_REF` to the desired tag/commit of `thu-ml/SageAttention`.
+2. If PyTorch changes, pass `TORCH_VER`; if CUDA or Python changes, update
+   `prepare-builder.sh` and the Dockerfile together.
 3. Rebuild + new release with a new tag. The old release stays valid for
    older image versions.

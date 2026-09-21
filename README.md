@@ -101,8 +101,16 @@ sageattention-2.2.0-120-cp313-cp313-linux_x86_64.whl
 BUILD_BACKEND=docker ./build-all.sh
 ```
 
-构建脚本会使用对应的 PyTorch `devel` 镜像，其中包含构建所需的 CUDA
-Toolkit 和 `nvcc`。
+未指定 `BASE_IMAGE` 时，脚本会通过 `prepare-builder.sh` 自动创建或复用：
+
+```text
+Ubuntu 22.04
+CUDA Toolkit 13.0 / nvcc
+Python 3.13
+PyTorch 2.13.0+cu130（或指定的 2.14.0+cu130）
+```
+
+因此普通 Docker 构建不依赖宿主机的 Python、PyTorch 或 CUDA Toolkit。
 
 ### 服务器原生构建
 
@@ -153,16 +161,14 @@ SM120 → RTX 50xx
 工作流默认按顺序构建四种架构，并上传 `.whl`、`SHA256SUMS`，最后自动
 创建 GitHub Release。构建机不需要显卡。
 
-由于官方 PyTorch `devel` 镜像的默认 Python 版本可能不是 3.13，工作流
-会在 CUDA devel 镜像内额外创建 Python 3.13 环境，并重新安装匹配的
-PyTorch 版本。这样生成的 wheel 才会真正带有 `cp313` ABI。
+由于官方 PyTorch `devel` 镜像的默认 Python 版本不是固定的 3.13，工作流
+基于 NVIDIA CUDA 13.0 / Ubuntu 22.04 镜像创建 Python 3.13 `venv`，再安装
+匹配的 PyTorch。这样生成的 wheel 才会真正带有 `cp313` ABI，并以 Ubuntu
+22.04 作为二进制兼容基线。
 
 如果要跟随新的 ComfyUI release 使用 PyTorch 2.14.0，可以在工作流输入中
-将 PyTorch 版本改为 `2.14.0`。工作流会使用对应的：
-
-```text
-pytorch/pytorch:2.14.0-cuda13.0-cudnn9-devel
-```
+将 PyTorch 版本改为 `2.14.0`；builder 会在相同 CUDA 13.0 / Python 3.13
+环境中安装 PyTorch 2.14.0。
 
 ## 构建默认版本
 
@@ -174,7 +180,6 @@ SAGE_REF="v2.2.0" \
 TORCH_VER="2.13.0" \
 CUDA_TAG="cu130" \
 PY_TAG="cp313" \
-BASE_IMAGE="pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel" \
 BUILD_BACKEND="docker" \
 MAX_JOBS="1" \
 ./build-all.sh
@@ -198,6 +203,9 @@ SM_LIST="86 89" MAX_JOBS="1" ./build-all.sh
 ./dist/SHA256SUMS
 ```
 
+`build-all.sh` 默认会先清理 `dist/` 中旧的 SageAttention wheel 和
+`SHA256SUMS`，避免把不同 Python/PyTorch 版本的历史产物混入同一个 Release。
+
 ## PyTorch 2.14.0 构建配置
 
 PyTorch 2.14.0 配置不会替换默认的 2.13.0 配置。需要跟随新的 ComfyUI
@@ -209,22 +217,19 @@ SAGE_REF="v2.2.0" \
 TORCH_VER="2.14.0" \
 CUDA_TAG="cu130" \
 PY_TAG="cp313" \
-BASE_IMAGE="pytorch/pytorch:2.14.0-cuda13.0-cudnn9-devel" \
 BUILD_BACKEND="docker" \
 MAX_JOBS="1" \
 ./build-all.sh
 ```
 
-构建前可以检查镜像内实际版本：
+构建前可以单独创建并检查 builder：
 
 ```bash
-docker run --rm \
-  pytorch/pytorch:2.14.0-cuda13.0-cudnn9-devel \
-  python -c 'import sys, torch; print(sys.version); print(torch.__version__); print(torch.version.cuda)'
+TORCH_VER="2.14.0" ./prepare-builder.sh
 ```
 
-预期为 Python 3.13、PyTorch 2.14.0、CUDA 13.0。构建脚本也会自动检查
-这些版本，发现不匹配会停止构建。
+脚本会输出 Python、PyTorch、Triton 和 `nvcc` 版本。构建脚本也会自动
+检查 Python、PyTorch、CUDA 版本，发现不匹配会停止构建。
 
 ## 构建依赖
 

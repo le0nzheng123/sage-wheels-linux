@@ -7,7 +7,10 @@ on:
         description: "PyTorch 版本"
         required: true
         default: "2.13.0"
-        type: string
+        type: choice
+        options:
+          - "2.13.0"
+          - "2.14.0"
       sage_ref:
         description: "SageAttention 版本或 commit"
         required: true
@@ -22,7 +25,11 @@ on:
         description: "单个架构的并行编译任务数"
         required: true
         default: "1"
-        type: string
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "4"
       release_tag:
         description: "可选：自定义 Release tag；留空则自动生成"
         required: false
@@ -30,7 +37,11 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: sageattention-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -43,53 +54,56 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: 解析构建配置
+      - name: 解析并校验构建配置
+        env:
+          INPUT_TORCH_VERSION: ${{ inputs.torch_version }}
+          INPUT_SAGE_REF: ${{ inputs.sage_ref }}
+          INPUT_SM_LIST: ${{ inputs.sm_list }}
+          INPUT_MAX_JOBS: ${{ inputs.max_jobs }}
         shell: bash
         run: |
           set -euo pipefail
-          torch_version='${{ inputs.torch_version }}'
-          sage_ref='${{ inputs.sage_ref }}'
-          sm_list='${{ inputs.sm_list }}'
-          max_jobs='${{ inputs.max_jobs }}'
+          torch_version="${INPUT_TORCH_VERSION:-2.13.0}"
+          sage_ref="${INPUT_SAGE_REF:-v2.2.0}"
+          sm_list="${INPUT_SM_LIST:-80 86 89 120}"
+          max_jobs="${INPUT_MAX_JOBS:-1}"
 
-          : "${torch_version:=2.13.0}"
-          : "${sage_ref:=v2.2.0}"
-          : "${sm_list:=80 86 89 120}"
-          : "${max_jobs:=1}"
+          [[ "$torch_version" =~ ^2\.(13|14)\.0$ ]] || { echo "Invalid torch_version" >&2; exit 1; }
+          [[ "$sage_ref" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "Invalid sage_ref" >&2; exit 1; }
+          [[ "$sm_list" =~ ^(80|86|89|90|120)(\ (80|86|89|90|120))*$ ]] || { echo "Invalid sm_list" >&2; exit 1; }
+          [[ "$max_jobs" =~ ^(1|2|4)$ ]] || { echo "Invalid max_jobs" >&2; exit 1; }
 
           {
             echo "TORCH_VER=$torch_version"
             echo "SAGE_REF=$sage_ref"
             echo "SM_LIST=$sm_list"
             echo "MAX_JOBS=$max_jobs"
-            echo "BASE_IMAGE=pytorch/pytorch:${torch_version}-cuda13.0-cudnn9-devel"
           } >> "$GITHUB_ENV"
 
-      - name: 构建 Python 3.13 构建镜像
+      - name: 构建 Python 3.13 Builder
         shell: bash
         run: |
           set -euo pipefail
-          docker pull "$BASE_IMAGE"
-          build_image="sageattention-builder:${GITHUB_RUN_ID}"
-          docker build \
-            --build-arg "BASE_IMAGE=$BASE_IMAGE" \
-            --build-arg "TORCH_VERSION=$TORCH_VER" \
-            --build-arg "PYTHON_VERSION=3.13" \
-            --build-arg "CUDA_INDEX_URL=https://download.pytorch.org/whl/cu130" \
-            --tag "$build_image" \
-            --file .github/docker/Dockerfile.py313 \
-            .
+          chmod +x prepare-builder.sh
+          df -h
+          build_image="$(
+            TORCH_VER="$TORCH_VER" \
+            CUDA_TAG="$CUDA_TAG" \
+            PY_TAG="$PY_TAG" \
+            BUILDER_IMAGE="sageattention-builder:${GITHUB_RUN_ID}" \
+            ./prepare-builder.sh
+          )"
           echo "BUILD_IMAGE=$build_image" >> "$GITHUB_ENV"
-          docker run --rm "$build_image" \
-            python -c 'import sys, torch; print(sys.version); print(torch.__version__); print(torch.version.cuda)'
+          docker system df
+          df -h
 
-      - name: 构建四种 GPU 架构
+      - name: 构建目标 GPU 架构
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x build.sh build-all.sh build-wheel.sh
+          chmod +x build.sh build-all.sh build-wheel.sh prepare-builder.sh
           BUILD_BACKEND=docker \
           BASE_IMAGE="$BUILD_IMAGE" \
           SAGE_REF="$SAGE_REF" \
@@ -98,10 +112,49 @@ jobs:
           PY_TAG="$PY_TAG" \
           SM_LIST="$SM_LIST" \
           MAX_JOBS="$MAX_JOBS" \
+          SKIP_APT=1 \
+          SKIP_PIP_DEPS=1 \
           ./build-all.sh
 
-          test -n "$(find dist -maxdepth 1 -name 'sageattention-*.whl' -print -quit)"
+          expected_count="$(wc -w <<< "$SM_LIST" | tr -d ' ')"
+          actual_count="$(find dist -maxdepth 1 -name 'sageattention-*.whl' | wc -l | tr -d ' ')"
+          if [ "$actual_count" != "$expected_count" ]; then
+            echo "Expected $expected_count wheels, found $actual_count" >&2
+            exit 1
+          fi
+
+          for sm in $SM_LIST; do
+            find dist -maxdepth 1 -name "sageattention-*-${sm}-cp313-cp313-linux_x86_64.whl" \
+              -print -quit | grep -q . || {
+                echo "Missing expected SM${sm} cp313 Linux x86_64 wheel" >&2
+                exit 1
+              }
+          done
+
+          (cd dist && sha256sum -c SHA256SUMS)
+          for wheel in dist/sageattention-*.whl; do
+            unzip -l "$wheel" | grep -Eq 'sageattention/.*\.so$' || {
+              echo "No compiled extension found in $wheel" >&2
+              exit 1
+            }
+          done
           ls -lh dist
+
+      - name: 检查 Wheel 依赖和导入
+        shell: bash
+        run: |
+          set -euo pipefail
+          for wheel in dist/sageattention-*.whl; do
+            wheel_name="$(basename "$wheel")"
+            docker run --rm \
+              -v "$PWD/dist:/wheels:ro" \
+              "$BUILD_IMAGE" bash -lc "
+                set -euo pipefail
+                auditwheel show '/wheels/$wheel_name'
+                python -m pip install --no-deps --force-reinstall '/wheels/$wheel_name'
+                python -c 'import sageattention; from sageattention import sageattn; print(sageattention.__file__)'
+              "
+          done
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
@@ -129,23 +182,38 @@ jobs:
       - name: 创建 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TORCH_VERSION: ${{ inputs.torch_version }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_SM_LIST: ${{ inputs.sm_list }}
         shell: bash
         run: |
           set -euo pipefail
+          (cd dist && sha256sum -c SHA256SUMS)
+
           sage_version="$(find dist -maxdepth 1 -name 'sageattention-*.whl' -print -quit \
             | sed -nE 's#.*sageattention-([0-9.]+)-.*#\1#')"
-          torch_version='${{ inputs.torch_version }}'
-          release_tag='${{ inputs.release_tag }}'
-          : "${torch_version:=2.13.0}"
+          torch_version="${INPUT_TORCH_VERSION:-2.13.0}"
+          release_tag="${INPUT_RELEASE_TAG:-}"
+          sm_list="${INPUT_SM_LIST:-80 86 89 120}"
+
+          [ -n "$sage_version" ] || { echo "Unable to detect SageAttention version" >&2; exit 1; }
+          [[ "$torch_version" =~ ^2\.(13|14)\.0$ ]] || { echo "Invalid torch_version" >&2; exit 1; }
+          [[ "$release_tag" =~ ^[A-Za-z0-9._-]*$ ]] || { echo "Invalid release_tag" >&2; exit 1; }
+          [[ "$sm_list" =~ ^(80|86|89|90|120)(\ (80|86|89|90|120))*$ ]] || { echo "Invalid sm_list" >&2; exit 1; }
 
           if [ -z "$release_tag" ]; then
             release_tag="sage-${sage_version}-torch-${torch_version}-cu130-py313"
           fi
 
-          echo "Creating release: $release_tag"
+          if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: $release_tag" >&2
+            echo "Use a different release_tag to preserve existing releases." >&2
+            exit 1
+          fi
+
           gh release create "$release_tag" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$release_tag" \
             --target "$GITHUB_SHA" \
-            --notes "SageAttention ${sage_version}; PyTorch ${torch_version}+cu130; Python 3.13; SM80/SM86/SM89/SM120." \
+            --notes "SageAttention ${sage_version}; PyTorch ${torch_version}+cu130; Python 3.13; SM ${sm_list}. Built on Ubuntu 22.04." \
             dist/*
