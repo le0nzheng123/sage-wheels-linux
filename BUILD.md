@@ -14,11 +14,10 @@ Step-by-step to generate a new release of wheels.
 ## Default build matrix
 
 `build-all.sh` builds these compute capabilities by default
-(`SM_LIST="75 80 86 89 90 120"`):
+(`SM_LIST="80 86 89 90 120"`):
 
 | SM  | Arch       | Example GPUs                |
 |-----|------------|-----------------------------|
-| 75  | Turing     | RTX 20xx, T4                |
 | 80  | Ampere     | A100                        |
 | 86  | Ampere     | RTX 30xx, A10, A40          |
 | 89  | Ada        | RTX 40xx, L40, L40S         |
@@ -27,6 +26,37 @@ Step-by-step to generate a new release of wheels.
 
 Override with `SM_LIST="86 89"` (or any subset) to build fewer archs.
 
+SM75/RTX 20xx is intentionally excluded: SageAttention v2.2.0 upstream does
+not provide the corresponding supported CUDA attention kernels.
+
+## PyTorch 2.14.0 profile
+
+The scripts keep PyTorch 2.13.0 as the default, but the same source can be
+built against PyTorch 2.14.0 + CUDA 13.0:
+
+```bash
+SM_LIST="80 86 89 90 120" \
+SAGE_REF="v2.2.0" \
+TORCH_VER="2.14.0" \
+CUDA_TAG="cu130" \
+PY_TAG="cp313" \
+BASE_IMAGE="pytorch/pytorch:2.14.0-cuda13.0-cudnn9-devel" \
+BUILD_BACKEND="docker" \
+MAX_JOBS="1" \
+./build-all.sh
+```
+
+Before building, verify that the image really contains the intended versions:
+
+```bash
+docker run --rm \
+  pytorch/pytorch:2.14.0-cuda13.0-cudnn9-devel \
+  python -c 'import sys, torch; print(sys.version); print(torch.__version__); print(torch.version.cuda)'
+```
+
+Expected output is Python 3.13, PyTorch 2.14.0, and CUDA 13.0. The build
+scripts also perform this consistency check and stop on a mismatch.
+
 ## Version auto-detection
 
 `TORCH_VER`, `CUDA_TAG` and `PY_TAG` (used only for the **release tag**, not
@@ -34,8 +64,8 @@ for the wheel filename) are detected automatically:
 
 - **Native backend**: read from the running Python interpreter (`torch.__version__`,
   `torch.version.cuda`, `sys.version_info`).
-- **Docker backend**: parsed from `BASE_IMAGE` (e.g. `pytorch/pytorch:2.12.0-cuda13.0-...`
-  → `TORCH_VER=2.12.0`, `CUDA_TAG=cu130`).
+- **Docker backend**: parsed from `BASE_IMAGE` (e.g. `pytorch/pytorch:2.13.0-cuda13.0-...`
+  → `TORCH_VER=2.13.0`, `CUDA_TAG=cu130`).
 
 Export any of them explicitly to override. This means a pod sharing the same
 base image as `comfyui-docker` will produce a correctly-tagged release without
@@ -86,19 +116,18 @@ RunPod or Vast.ai with:
 - ≥ 16 GB RAM (to build all archs in one go) or 8 GB (sequential).
 - ≥ 30 GB of ephemeral disk
 - Base image: any Ubuntu 22.04 / 24.04 with Docker pre-installed, **or** a
-  `pytorch/pytorch:2.12.0-cuda13.0-cudnn9-devel` container for native builds.
+  `pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel` container for native builds.
 
 ### 2. Clone and build
 
 ```bash
-git clone https://github.com/tcpassos/sage-wheels-linux.git
+git clone https://github.com/le0nzheng123/sage-wheels-linux.git
 cd sage-wheels-linux
 
 # Build every arch declared in build-all.sh (auto-picks docker or native)
 ./build-all.sh
 
 # Or single-arch builds:
-./build.sh 75    # Turing    (RTX 20xx, T4)
 ./build.sh 80    # Ampere    (A100)
 ./build.sh 86    # Ampere    (RTX 30xx, A10)
 ./build.sh 89    # Ada       (RTX 40xx, L40)
@@ -149,7 +178,7 @@ check:
 
 ```bash
 gh api user --jq .login                                # must match the repo owner
-gh api repos/tcpassos/sage-wheels-linux --jq .permissions
+gh api repos/le0nzheng123/sage-wheels-linux --jq .permissions
 # expected to include push:true
 ```
 
@@ -169,7 +198,7 @@ echo "$TAG"
 
 ```bash
 gh release create "$TAG" \
-    --repo tcpassos/sage-wheels-linux \
+    --repo le0nzheng123/sage-wheels-linux \
     --title "$TAG" \
     --notes "Sage ${SAGE_VER} compiled against PyTorch ${TORCH_VER} + CUDA ${CUDA_TAG}, Python 3.${PY_DIGITS:1}. Built on $(date -u +%F)." \
     dist/sageattention-*.whl dist/SHA256SUMS
@@ -197,7 +226,7 @@ inside it. Provision a pod with the right CUDA image and run:
 
 ```bash
 apt-get update && apt-get install -y git
-git clone https://github.com/tcpassos/sage-wheels-linux.git
+git clone https://github.com/le0nzheng123/sage-wheels-linux.git
 cd sage-wheels-linux
 BUILD_BACKEND=native ./build-all.sh
 ```
@@ -215,7 +244,7 @@ pod with the matching GPU arch:
 
 ```bash
 docker run --rm --gpus all -v $PWD/dist:/wheels \
-    pytorch/pytorch:2.12.0-cuda13.0-cudnn9-devel bash -c '
+    pytorch/pytorch:2.13.0-cuda13.0-cudnn9-devel bash -c '
         PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-deps /wheels/sageattention-2.2.0-90-*.whl &&
         python -c "import sageattention; print(sageattention.__version__)" &&
         python -c "import torch; from sageattention import sageattn; print(\"sageattn OK\")"

@@ -13,6 +13,8 @@
 #   SKIP_PIP_DEPS=1 Skip pip install --upgrade pip wheel setuptools
 #   SRC_DIR        (default: /tmp/sage)
 #   WHEEL_TMP      (default: /tmp/wheel)
+#   EXPECTED_TORCH_VER / EXPECTED_CUDA_TAG / EXPECTED_PY_TAG
+#                    optional build-environment consistency checks
 
 set -euo pipefail
 
@@ -60,10 +62,35 @@ git reset --hard HEAD
 echo "    commit: $(git rev-parse HEAD)"
 
 echo "==> torch sanity"
-python -c "import torch; print(\"torch=\"+torch.__version__, \"cuda=\"+(torch.version.cuda or \"none\"))"
+read -r ACTUAL_TORCH ACTUAL_CUDA ACTUAL_PY <<EOF
+$(python - <<'PY'
+import sys
+import torch
+print(torch.__version__.split("+")[0], (torch.version.cuda or "").replace(".", ""), f"cp{sys.version_info.major}{sys.version_info.minor}")
+PY
+)
+EOF
+echo "    torch=$ACTUAL_TORCH cuda=${ACTUAL_CUDA:-none} python=$ACTUAL_PY"
+
+if [ -n "${EXPECTED_TORCH_VER:-}" ] && [ "$ACTUAL_TORCH" != "$EXPECTED_TORCH_VER" ]; then
+    echo "ERROR: expected PyTorch $EXPECTED_TORCH_VER, found $ACTUAL_TORCH" >&2
+    exit 1
+fi
+if [ -n "${EXPECTED_CUDA_TAG:-}" ]; then
+    EXPECTED_CUDA="${EXPECTED_CUDA_TAG#cu}"
+    if [ "$ACTUAL_CUDA" != "$EXPECTED_CUDA" ]; then
+        echo "ERROR: expected CUDA ${EXPECTED_CUDA_TAG}, found cu${ACTUAL_CUDA:-none}" >&2
+        exit 1
+    fi
+fi
+if [ -n "${EXPECTED_PY_TAG:-}" ] && [ "$ACTUAL_PY" != "$EXPECTED_PY_TAG" ]; then
+    echo "ERROR: expected Python ${EXPECTED_PY_TAG}, found ${ACTUAL_PY}" >&2
+    exit 1
+fi
 
 echo "==> pip wheel (TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST, MAX_JOBS=$MAX_JOBS)"
 mkdir -p "$WHEEL_TMP"
+rm -f "$WHEEL_TMP"/sageattention-*.whl
 pip wheel . --no-build-isolation --no-deps -w "$WHEEL_TMP"
 
 shopt -s nullglob
