@@ -57,6 +57,26 @@ Release tag 留空自动生成
 GitHub runner 没有 NVIDIA GPU，因此可以完成编译和静态验证，但最终仍建议在
 对应 GPU 上运行一次 ComfyUI 工作流。
 
+### Linux Multi-SM Wheel
+
+仓库另外提供 `构建并发布 SageAttention Linux Multi-SM Wheel` 工作流。它不修改
+原有单 SM 构建流程，默认把以下架构编译进同一个 wheel：
+
+```text
+SM80  A100/A800
+SM86  RTX 30xx
+SM89  RTX 40xx
+```
+
+RTX 50xx（SM120）默认不构建，但仍可在运行工作流时把 `SM list` 改成
+`80 86 89 120`。本地 Docker 构建命令：
+
+```bash
+SM_LIST="80 86 89" BUILD_BACKEND=docker MAX_JOBS=1 ./build-multi-sm.sh
+```
+
+产物位于 `dist-multi-sm/`，与原有 `dist/` 完全分开。
+
 ## Wheel 文件名
 
 格式：

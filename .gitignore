@@ -1,4 +1,7 @@
 dist/
+dist-multi-sm/
 *.whl
 SHA256SUMS
 .DS_Store
+__pycache__/
+*.pyc
