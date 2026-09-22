@@ -1,0 +1,237 @@
+name: 构建并发布 SageAttention Linux Multi-SM Wheel
+
+on:
+  workflow_dispatch:
+    inputs:
+      torch_version:
+        description: "PyTorch 版本"
+        required: true
+        default: "2.13.0"
+        type: choice
+        options:
+          - "2.13.0"
+          - "2.14.0"
+      sage_ref:
+        description: "SageAttention 版本或 commit"
+        required: true
+        default: "v2.2.0"
+        type: string
+      sm_list:
+        description: "写入同一个 wheel 的 GPU 架构，空格分隔"
+        required: true
+        default: "80 86 89"
+        type: string
+      max_jobs:
+        description: "并行编译任务数"
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "4"
+      release_tag:
+        description: "可选：自定义 Release tag；留空则自动生成"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sageattention-linux-multi-sm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建 Linux Multi-SM Wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      CUDA_TAG: cu130
+      PY_TAG: cp313
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: 解析并校验构建配置
+        env:
+          INPUT_TORCH_VERSION: ${{ inputs.torch_version }}
+          INPUT_SAGE_REF: ${{ inputs.sage_ref }}
+          INPUT_SM_LIST: ${{ inputs.sm_list }}
+          INPUT_MAX_JOBS: ${{ inputs.max_jobs }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          torch_version="${INPUT_TORCH_VERSION:-2.13.0}"
+          sage_ref="${INPUT_SAGE_REF:-v2.2.0}"
+          sm_list="${INPUT_SM_LIST:-80 86 89}"
+          max_jobs="${INPUT_MAX_JOBS:-1}"
+
+          [[ "$torch_version" =~ ^2\.(13|14)\.0$ ]] || { echo "Invalid torch_version" >&2; exit 1; }
+          [[ "$sage_ref" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "Invalid sage_ref" >&2; exit 1; }
+          [[ "$sm_list" =~ ^(80|86|89|90|120)(\ (80|86|89|90|120))*$ ]] || { echo "Invalid sm_list" >&2; exit 1; }
+          [[ "$max_jobs" =~ ^(1|2|4)$ ]] || { echo "Invalid max_jobs" >&2; exit 1; }
+
+          read -r -a sm_values <<< "$sm_list"
+          seen=" "
+          sm_label=""
+          for sm in "${sm_values[@]}"; do
+            case "$seen" in
+              *" $sm "*) echo "Duplicate SM: $sm" >&2; exit 1 ;;
+            esac
+            seen="${seen}${sm} "
+            sm_label="${sm_label}${sm_label:+-}sm${sm}"
+          done
+
+          {
+            echo "TORCH_VER=$torch_version"
+            echo "SAGE_REF=$sage_ref"
+            echo "SM_LIST=$sm_list"
+            echo "SM_LABEL=$sm_label"
+            echo "MAX_JOBS=$max_jobs"
+          } >> "$GITHUB_ENV"
+
+      - name: 构建 Python 3.13 Builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x prepare-builder.sh
+          df -h
+          build_image="$(
+            TORCH_VER="$TORCH_VER" \
+            CUDA_TAG="$CUDA_TAG" \
+            PY_TAG="$PY_TAG" \
+            BUILDER_IMAGE="sageattention-multi-sm-builder:${GITHUB_RUN_ID}" \
+            ./prepare-builder.sh
+          )"
+          echo "BUILD_IMAGE=$build_image" >> "$GITHUB_ENV"
+          docker system df
+          df -h
+
+      - name: 构建一个 Multi-SM Wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x build-multi-sm.sh build-wheel-multi-sm.sh prepare-builder.sh
+          BUILD_BACKEND=docker \
+          BASE_IMAGE="$BUILD_IMAGE" \
+          SAGE_REF="$SAGE_REF" \
+          TORCH_VER="$TORCH_VER" \
+          CUDA_TAG="$CUDA_TAG" \
+          PY_TAG="$PY_TAG" \
+          SM_LIST="$SM_LIST" \
+          MAX_JOBS="$MAX_JOBS" \
+          SKIP_APT=1 \
+          SKIP_PIP_DEPS=1 \
+          ./build-multi-sm.sh
+
+          wheel_count="$(find dist-multi-sm -maxdepth 1 -name 'sageattention-*.whl' | wc -l | tr -d ' ')"
+          [ "$wheel_count" = "1" ] || { echo "Expected one wheel, found $wheel_count" >&2; exit 1; }
+          find dist-multi-sm -maxdepth 1 \
+            -name 'sageattention-*-cp313-cp313-linux_x86_64.whl' \
+            -print -quit | grep -q . || {
+              echo "Missing expected cp313 Linux x86_64 wheel" >&2
+              exit 1
+            }
+          (cd dist-multi-sm && sha256sum -c SHA256SUMS)
+          unzip -l dist-multi-sm/sageattention-*.whl | grep -Eq 'sageattention/.*\.so$' || {
+            echo "No compiled extension found in wheel" >&2
+            exit 1
+          }
+          ls -lh dist-multi-sm
+
+      - name: 检查依赖、导入和内置 SM
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel_path="$(find dist-multi-sm -maxdepth 1 -name 'sageattention-*.whl' -print -quit)"
+          wheel_name="${wheel_path##*/}"
+          docker run --rm \
+            -e EXPECTED_SM_LIST="$SM_LIST" \
+            -v "$PWD/dist-multi-sm:/wheels:ro" \
+            -v "$PWD/verify-multi-sm-wheel.py:/verify-multi-sm-wheel.py:ro" \
+            "$BUILD_IMAGE" bash -lc "
+              set -euo pipefail
+              command -v cuobjdump
+              auditwheel show '/wheels/$wheel_name'
+              python -m pip install --no-deps --force-reinstall '/wheels/$wheel_name'
+              python -c 'import sageattention; from sageattention import sageattn; print(sageattention.__file__)'
+              python /verify-multi-sm-wheel.py '/wheels/$wheel_name' --sm-list \$EXPECTED_SM_LIST
+            "
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: sageattention-linux-multi-sm-wheel
+          path: dist-multi-sm/
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: 创建 Multi-SM GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v8
+        with:
+          name: sageattention-linux-multi-sm-wheel
+          path: dist-multi-sm
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TORCH_VERSION: ${{ inputs.torch_version }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_SM_LIST: ${{ inputs.sm_list }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist-multi-sm && sha256sum -c SHA256SUMS)
+
+          wheel_path="$(find dist-multi-sm -maxdepth 1 -name 'sageattention-*.whl' -print -quit)"
+          wheel_name="${wheel_path##*/}"
+          sage_version="${wheel_name#sageattention-}"
+          sage_version="${sage_version%%-*}"
+          torch_version="${INPUT_TORCH_VERSION:-2.13.0}"
+          release_tag="${INPUT_RELEASE_TAG:-}"
+          sm_list="${INPUT_SM_LIST:-80 86 89}"
+
+          [[ "$sage_version" =~ ^[0-9]+(\.[0-9]+)+$ ]] || { echo "Unable to detect SageAttention version" >&2; exit 1; }
+          [[ "$torch_version" =~ ^2\.(13|14)\.0$ ]] || { echo "Invalid torch_version" >&2; exit 1; }
+          [[ "$release_tag" =~ ^[A-Za-z0-9._-]*$ ]] || { echo "Invalid release_tag" >&2; exit 1; }
+          [[ "$sm_list" =~ ^(80|86|89|90|120)(\ (80|86|89|90|120))*$ ]] || { echo "Invalid sm_list" >&2; exit 1; }
+
+          read -r -a sm_values <<< "$sm_list"
+          seen=" "
+          sm_label=""
+          for sm in "${sm_values[@]}"; do
+            case "$seen" in
+              *" $sm "*) echo "Duplicate SM: $sm" >&2; exit 1 ;;
+            esac
+            seen="${seen}${sm} "
+            sm_label="${sm_label}${sm_label:+-}sm${sm}"
+          done
+          if [ -z "$release_tag" ]; then
+            release_tag="sage-${sage_version}-torch-${torch_version}-cu130-py313-multism-${sm_label}"
+          fi
+
+          if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: $release_tag" >&2
+            echo "Use a different release_tag to preserve existing releases." >&2
+            exit 1
+          fi
+
+          gh release create "$release_tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$release_tag" \
+            --target "$GITHUB_SHA" \
+            --notes "One Linux Multi-SM wheel: SageAttention ${sage_version}; PyTorch ${torch_version}+cu130; Python 3.13; embedded SM ${sm_list}. Built on Ubuntu 22.04." \
+            dist-multi-sm/*

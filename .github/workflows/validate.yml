@@ -20,13 +20,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash -n build.sh build-all.sh build-wheel.sh prepare-builder.sh
+          bash -n build.sh build-all.sh build-wheel.sh \
+            build-multi-sm.sh build-wheel-multi-sm.sh prepare-builder.sh
 
       - name: ShellCheck
         shell: bash
         run: |
           set -euo pipefail
-          shellcheck build.sh build-all.sh build-wheel.sh prepare-builder.sh
+          shellcheck build.sh build-all.sh build-wheel.sh \
+            build-multi-sm.sh build-wheel-multi-sm.sh prepare-builder.sh
 
       - name: Dockerfile 静态检查
         shell: bash
@@ -35,3 +37,7 @@ jobs:
           docker build --check \
             --file .github/docker/Dockerfile.py313 \
             .
+
+      - name: Python 语法检查
+        shell: bash
+        run: python -m py_compile verify-multi-sm-wheel.py
