@@ -6,11 +6,22 @@ Step-by-step to generate a new release of wheels.
 
 - **No GPU required.** In Docker mode, `prepare-builder.sh` creates an Ubuntu
   22.04 image with CUDA Toolkit 13.0, NVCC, Python 3.13 and the selected
-  PyTorch version.
+  PyTorch version. The CUDA image is pinned by digest.
 - ~6 GB of free RAM per architecture being built (the `_fused.so` link step
   is memory-hungry). On small runners (4–8 GB) build one arch at a time.
 - Docker **or** a host that already has PyTorch + NVCC (native backend).
 - `gh` CLI (optional, for automatic upload via `gh release create`).
+
+The default SageAttention source is pinned as:
+
+```text
+tag     v2.2.0
+commit  eb615cf6cf4d221338033340ee2de1c37fbdba4a
+```
+
+The build verifies this mapping before executing the upstream build backend.
+Builder tooling is installed from `.github/docker/requirements-builder.txt`
+with exact versions and SHA256 hashes.
 
 ## Default build matrix
 
@@ -96,8 +107,8 @@ A few knobs that often matter when running on different hosts:
   The `docker` backend already injects this variable into the container, so
   this only applies to `BUILD_BACKEND=native`.
 - **`SKIP_APT=1`** / **`SKIP_PIP_DEPS=1`** — skip the `apt-get install` and
-  `pip install --upgrade pip wheel setuptools` steps when the environment is
-  already provisioned (saves time and avoids needing root).
+  hash-pinned builder dependency installation when the environment is already
+  provisioned (saves time and avoids needing root).
 
 [pep668]: https://peps.python.org/pep-0668/
 
@@ -223,6 +234,10 @@ allocated.
 Use this when your pod already contains Python 3.13, the target PyTorch build,
 CUDA Toolkit/NVCC and a C++ compiler, and you don't want Docker-in-Docker:
 
+Native mode executes the verified upstream source with the current user's host
+filesystem and network permissions. Use it only on a dedicated build machine;
+Docker mode remains the safer default for shared hosts.
+
 ```bash
 apt-get update && apt-get install -y git
 git clone https://github.com/le0nzheng123/sage-wheels-linux.git
@@ -253,7 +268,8 @@ docker run --rm --gpus all -v $PWD/dist:/wheels \
 
 ## Updating to a new Sage version
 
-1. Set `SAGE_REF` to the desired tag/commit of `thu-ml/SageAttention`.
+1. Audit the desired upstream tag, record its full 40-character commit, then
+   update both `SAGE_REF` and `SAGE_COMMIT` defaults/workflow allowlists.
 2. If PyTorch changes, pass `TORCH_VER`; if CUDA or Python changes, update
    `prepare-builder.sh` and the Dockerfile together.
 3. Rebuild + new release with a new tag. The old release stays valid for

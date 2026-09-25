@@ -8,8 +8,10 @@ TORCH_VER="${TORCH_VER:-2.13.0}"
 CUDA_TAG="${CUDA_TAG:-cu130}"
 PY_TAG="${PY_TAG:-cp313}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.13}"
-CUDA_BASE_IMAGE="${CUDA_BASE_IMAGE:-nvidia/cuda:13.0.0-devel-ubuntu22.04}"
+CUDA_BASE_IMAGE="${CUDA_BASE_IMAGE:-nvidia/cuda:13.0.0-devel-ubuntu22.04@sha256:1470d2d7904fac4e5cb3bdfd4993305c46d3ee76deb0213eaaf248e5cf9c7400}"
 REBUILD_BUILDER="${REBUILD_BUILDER:-0}"
+BUILDER_DOCKERFILE="$SCRIPT_DIR/.github/docker/Dockerfile.py313"
+BUILDER_REQUIREMENTS="$SCRIPT_DIR/.github/docker/requirements-builder.txt"
 
 command -v docker >/dev/null 2>&1 || {
     echo "ERROR: Docker is required to prepare the builder image" >&2
@@ -20,10 +22,21 @@ docker info >/dev/null 2>&1 || {
     exit 1
 }
 
+if [[ ! "$CUDA_BASE_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]; then
+    echo "ERROR: CUDA_BASE_IMAGE must be pinned by sha256 digest" >&2
+    exit 1
+fi
+
 if command -v sha256sum >/dev/null 2>&1; then
-    BUILDER_DEFINITION_HASH="$(sha256sum "$SCRIPT_DIR/.github/docker/Dockerfile.py313" | awk '{print substr($1,1,12)}')"
+    BUILDER_DEFINITION_HASH="$(
+        { printf '%s\n' "$CUDA_BASE_IMAGE"; cat "$BUILDER_DOCKERFILE" "$BUILDER_REQUIREMENTS"; } \
+            | sha256sum | awk '{print substr($1,1,12)}'
+    )"
 else
-    BUILDER_DEFINITION_HASH="$(shasum -a 256 "$SCRIPT_DIR/.github/docker/Dockerfile.py313" | awk '{print substr($1,1,12)}')"
+    BUILDER_DEFINITION_HASH="$(
+        { printf '%s\n' "$CUDA_BASE_IMAGE"; cat "$BUILDER_DOCKERFILE" "$BUILDER_REQUIREMENTS"; } \
+            | shasum -a 256 | awk '{print substr($1,1,12)}'
+    )"
 fi
 BUILDER_IMAGE="${BUILDER_IMAGE:-sageattention-builder:torch-${TORCH_VER}-${CUDA_TAG}-${PY_TAG}-${BUILDER_DEFINITION_HASH}}"
 
@@ -52,7 +65,7 @@ else
         --build-arg "PYTHON_VERSION=$PYTHON_VERSION" \
         --build-arg "CUDA_INDEX_URL=https://download.pytorch.org/whl/${CUDA_TAG}" \
         --tag "$BUILDER_IMAGE" \
-        --file "$SCRIPT_DIR/.github/docker/Dockerfile.py313" \
+        --file "$BUILDER_DOCKERFILE" \
         "$SCRIPT_DIR" >&2
 fi
 

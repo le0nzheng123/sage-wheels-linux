@@ -16,6 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SM_LIST="${SM_LIST:-80 86 89}"
 SAGE_REF="${SAGE_REF:-v2.2.0}"
+SAGE_COMMIT="${SAGE_COMMIT:-eb615cf6cf4d221338033340ee2de1c37fbdba4a}"
 BASE_IMAGE="${BASE_IMAGE:-}"
 OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/dist-multi-sm}"
 MAX_JOBS="${MAX_JOBS:-4}"
@@ -126,6 +127,7 @@ fi
 
 echo "==> Building one SageAttention Multi-SM wheel"
 echo "    SAGE_REF             = $SAGE_REF"
+echo "    SAGE_COMMIT          = $SAGE_COMMIT"
 echo "    SM_LIST              = $NORMALIZED_SM_LIST"
 echo "    TORCH_CUDA_ARCH_LIST = $TORCH_CUDA_ARCH_LIST"
 echo "    TORCH_VER            = $TORCH_VER"
@@ -146,6 +148,8 @@ if [ "$RESOLVED_BUILD_BACKEND" = "docker" ]; then
         -e SM_LIST="$NORMALIZED_SM_LIST" \
         -e MAX_JOBS="$MAX_JOBS" \
         -e SAGE_REF="$SAGE_REF" \
+        -e SAGE_COMMIT="$SAGE_COMMIT" \
+        -e BUILDER_REQUIREMENTS=/requirements-builder.txt \
         -e EXPECTED_TORCH_VER="$TORCH_VER" \
         -e EXPECTED_CUDA_TAG="$CUDA_TAG" \
         -e EXPECTED_PY_TAG="$PY_TAG" \
@@ -153,9 +157,11 @@ if [ "$RESOLVED_BUILD_BACKEND" = "docker" ]; then
         -e SKIP_PIP_DEPS="$SKIP_PIP_DEPS_VALUE" \
         -v "$OUT_DIR:/out" \
         -v "$SCRIPT_DIR/build-wheel-multi-sm.sh:/build-wheel-multi-sm.sh:ro" \
+        -v "$SCRIPT_DIR/.github/docker/requirements-builder.txt:/requirements-builder.txt:ro" \
         "$BASE_IMAGE" bash /build-wheel-multi-sm.sh
 else
-    export TORCH_CUDA_ARCH_LIST NORMALIZED_SM_LIST MAX_JOBS SAGE_REF OUT_DIR
+    export TORCH_CUDA_ARCH_LIST NORMALIZED_SM_LIST MAX_JOBS SAGE_REF SAGE_COMMIT OUT_DIR
+    export BUILDER_REQUIREMENTS="$SCRIPT_DIR/.github/docker/requirements-builder.txt"
     export SM_LIST="$NORMALIZED_SM_LIST"
     export EXPECTED_TORCH_VER="$TORCH_VER"
     export EXPECTED_CUDA_TAG="$CUDA_TAG"

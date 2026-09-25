@@ -5,12 +5,13 @@
 #   SM
 #   TORCH_CUDA_ARCH_LIST
 #   SAGE_REF
+#   SAGE_COMMIT
 #   OUT_DIR
 #
 # Optional environment variables:
 #   MAX_JOBS       (default: 4)
 #   SKIP_APT=1     Skip apt-get install of git + ca-certificates
-#   SKIP_PIP_DEPS=1 Skip pip install --upgrade pip wheel setuptools
+#   SKIP_PIP_DEPS=1 Skip installation of the hash-pinned builder requirements
 #   SRC_DIR        (default: /tmp/sage)
 #   WHEEL_TMP      (default: /tmp/wheel)
 #   EXPECTED_TORCH_VER / EXPECTED_CUDA_TAG / EXPECTED_PY_TAG
@@ -21,6 +22,7 @@ set -euo pipefail
 : "${SM:?SM is required}"
 : "${TORCH_CUDA_ARCH_LIST:?TORCH_CUDA_ARCH_LIST is required}"
 : "${SAGE_REF:?SAGE_REF is required}"
+: "${SAGE_COMMIT:?SAGE_COMMIT is required}"
 : "${OUT_DIR:?OUT_DIR is required}"
 
 MAX_JOBS="${MAX_JOBS:-4}"
@@ -43,8 +45,9 @@ if [ "${SKIP_APT:-0}" != "1" ] && command -v apt-get >/dev/null 2>&1; then
 fi
 
 if [ "${SKIP_PIP_DEPS:-0}" != "1" ]; then
-    echo "==> pip deps"
-    python -m pip install -q --upgrade pip wheel setuptools
+    : "${BUILDER_REQUIREMENTS:?BUILDER_REQUIREMENTS is required when SKIP_PIP_DEPS is not 1}"
+    echo "==> pinned pip deps"
+    python -m pip install -q --require-hashes --requirement "$BUILDER_REQUIREMENTS"
 fi
 
 command -v git
@@ -53,16 +56,35 @@ command -v python
 echo "==> clone thu-ml/SageAttention @ $SAGE_REF"
 if [ ! -d "$SRC_DIR/.git" ]; then
     rm -rf "$SRC_DIR"
-    git clone https://github.com/thu-ml/SageAttention.git "$SRC_DIR"
+    git clone --no-checkout https://github.com/thu-ml/SageAttention.git "$SRC_DIR"
 fi
 
 cd "$SRC_DIR"
-git fetch --all --tags -q
-git checkout "$SAGE_REF"
+if [ "$(git remote get-url origin)" != "https://github.com/thu-ml/SageAttention.git" ]; then
+    echo "ERROR: unexpected SageAttention origin URL" >&2
+    exit 1
+fi
+git check-ref-format "refs/tags/$SAGE_REF" >/dev/null || {
+    echo "ERROR: SAGE_REF must be a valid tag name" >&2
+    exit 1
+}
+[[ "$SAGE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "ERROR: SAGE_COMMIT must be a full lowercase 40-character SHA" >&2
+    exit 1
+}
+git -c core.hooksPath=/dev/null fetch --force origin \
+    "refs/tags/${SAGE_REF}:refs/tags/${SAGE_REF}" -q
+RESOLVED_SAGE_COMMIT="$(git rev-parse --verify "refs/tags/${SAGE_REF}^{commit}")"
+if [ "$RESOLVED_SAGE_COMMIT" != "$SAGE_COMMIT" ]; then
+    echo "ERROR: $SAGE_REF resolved to $RESOLVED_SAGE_COMMIT, expected $SAGE_COMMIT" >&2
+    exit 1
+fi
+git -c core.hooksPath=/dev/null checkout --detach "$SAGE_COMMIT"
 echo "==> clean stale build artifacts from previous SM builds"
 git clean -fdx
 git reset --hard HEAD
-echo "    commit: $(git rev-parse HEAD)"
+echo "    verified tag: $SAGE_REF"
+echo "    commit: $SAGE_COMMIT"
 
 echo "==> torch sanity"
 command -v nvcc
