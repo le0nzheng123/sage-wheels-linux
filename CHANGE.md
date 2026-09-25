@@ -59,6 +59,8 @@ Linux
 - 修复 Release 阶段使用 `sed -n` 却未输出匹配结果，导致成功构建的 wheel
   无法创建 GitHub Release。
 - 更新 artifact 上传和下载 actions，避免旧 Node.js runtime 弃用警告。
+- PyTorch 2.14.0 构建时自动为 C++ 和 NVCC 追加 C++20 标准参数；
+  PyTorch 2.13.0 继续使用 SageAttention 2.2.0 原有的 C++17 配置。
 
 ### 使用方法
 

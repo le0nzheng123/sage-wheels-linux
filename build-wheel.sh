@@ -95,6 +95,16 @@ if [ -n "${EXPECTED_PY_TAG:-}" ] && [ "$ACTUAL_PY" != "$EXPECTED_PY_TAG" ]; then
     exit 1
 fi
 
+# PyTorch 2.14 requires C++20 for C++/CUDA extensions, while SageAttention
+# v2.2.0 still declares -std=c++17. Appending C++20 makes it the final
+# standard flag without modifying the checked-out upstream source.
+if [[ "$ACTUAL_TORCH" == 2.14.* ]]; then
+    CXX_APPEND_FLAGS="${CXX_APPEND_FLAGS:+$CXX_APPEND_FLAGS }-std=c++20"
+    NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-std=c++20"
+    export CXX_APPEND_FLAGS NVCC_APPEND_FLAGS
+    echo "    compiler standard: C++20 (required by PyTorch $ACTUAL_TORCH)"
+fi
+
 echo "==> pip wheel (TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST, MAX_JOBS=$MAX_JOBS)"
 mkdir -p "$WHEEL_TMP"
 rm -f "$WHEEL_TMP"/sageattention-*.whl
