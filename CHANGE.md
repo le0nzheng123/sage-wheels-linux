@@ -1,5 +1,16 @@
 # 项目变更记录
 
+## 2026-09-25：记录构建兼容性和 GPU 验证边界
+
+- builder 明确固定 `setuptools==78.1.0`，满足 PyTorch 2.13/2.14 的
+  `setuptools>=77.0.3` 要求。
+- 记录该版本主动覆盖 SageAttention 2.2.0 `pyproject.toml` 中已经不适用于
+  当前 PyTorch 的 `setuptools<75` 限制。
+- builder 启动时检查 setuptools、wheel、packaging、ninja 和 auditwheel 的
+  实际版本，防止依赖安装阶段发生静默漂移。
+- 明确 CI 已验证编译、安装、import、依赖和 cubin，但未在真实 NVIDIA GPU
+  上执行 CUDA kernel 或 ComfyUI 工作流。
+
 ## 2026-09-25：构建供应链加固
 
 - SageAttention `v2.2.0` 固定并验证 commit

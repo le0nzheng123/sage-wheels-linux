@@ -73,7 +73,7 @@ docker run --rm "$BUILDER_IMAGE" bash -lc '
     set -euo pipefail
     command -v python
     command -v nvcc
-    python -c "import sys, torch, triton; print(sys.version); print(torch.__version__); print(torch.version.cuda); print(triton.__version__)"
+    python -c "import sys, torch, triton; from importlib.metadata import version; expected={\"setuptools\":\"78.1.0\",\"wheel\":\"0.43.0\",\"packaging\":\"23.2\",\"ninja\":\"1.13.2\",\"auditwheel\":\"6.8.2\"}; actual={package:version(package) for package in expected}; mismatches={package:(expected[package], actual[package]) for package in expected if actual[package] != expected[package]}; assert not mismatches, mismatches; print(sys.version); print(torch.__version__); print(torch.version.cuda); print(triton.__version__); print(\"builder tooling:\", actual)"
     nvcc --version
 ' >&2
 

@@ -228,5 +228,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "$release_tag" \
             --target "$GITHUB_SHA" \
-            --notes "SageAttention ${sage_version} @ ${sage_commit}; PyTorch ${torch_version}+cu130; Python 3.13; SM ${sm_list}. Built on Ubuntu 22.04." \
+            --notes "SageAttention ${sage_version} @ ${sage_commit}; PyTorch ${torch_version}+cu130; Python 3.13; SM ${sm_list}. Built on Ubuntu 22.04. CI validates build, install and import, but does not execute CUDA kernels on a real NVIDIA GPU." \
             dist/*
