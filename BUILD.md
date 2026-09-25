@@ -23,6 +23,29 @@ The build verifies this mapping before executing the upstream build backend.
 Builder tooling is installed from `.github/docker/requirements-builder.txt`
 with exact versions and SHA256 hashes.
 
+## Build compatibility and verification boundary
+
+PyTorch 2.13 and 2.14 declare `setuptools>=77.0.3`, while SageAttention
+v2.2.0's `pyproject.toml` declares `setuptools<75`. Those requirements cannot
+be satisfied together. This project builds with `--no-build-isolation` and
+intentionally pins `setuptools==78.1.0`, which has successfully built the
+PyTorch 2.14 Multi-SM wheel. The builder verifies the effective tooling
+versions before compiling.
+
+`setuptools` is a build and packaging tool; it is not part of SageAttention's
+CUDA inference path after wheel installation. The following checks run in CI:
+
+- wheel compilation and installation;
+- Python import of `sageattention` and `sageattn`;
+- SHA256 and shared-library inspection;
+- `auditwheel show` dependency inspection;
+- Multi-SM cubin presence for every requested architecture.
+
+GitHub-hosted runners do not provide NVIDIA GPUs. CI therefore does not prove
+real CUDA kernel execution or ComfyUI inference. A release still needs a real
+GPU workflow test on the relevant architecture before it can be considered
+fully runtime-validated.
+
 ## Default build matrix
 
 `build-all.sh` builds these compute capabilities by default
