@@ -3,6 +3,7 @@
 #
 # Variables exported to build.sh:
 #   SAGE_REF       (default: v2.2.0)
+#   SAGE_COMMIT    Expected commit for SAGE_REF
 #   TORCH_VER      (default: 2.13.0)
 #   CUDA_TAG       (default: cu130)
 #   PY_TAG         (default: cp313)
@@ -21,6 +22,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 export SAGE_REF="${SAGE_REF:-v2.2.0}"
+export SAGE_COMMIT="${SAGE_COMMIT:-eb615cf6cf4d221338033340ee2de1c37fbdba4a}"
 export BASE_IMAGE="${BASE_IMAGE:-}"
 export BUILD_BACKEND="${BUILD_BACKEND:-auto}"
 export OUT_DIR="${OUT_DIR:-$(pwd)/dist}"
@@ -45,6 +47,7 @@ fi
 echo "==================================="
 echo "Building SageAttention wheels"
 echo "  SAGE_REF   = $SAGE_REF"
+echo "  SAGE_COMMIT = $SAGE_COMMIT"
 echo "  TORCH_VER  = ${TORCH_VER:-auto}"
 echo "  CUDA_TAG   = ${CUDA_TAG:-auto}"
 echo "  PY_TAG     = ${PY_TAG:-auto}"

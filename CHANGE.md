@@ -1,5 +1,17 @@
 # 项目变更记录
 
+## 2026-09-25：构建供应链加固
+
+- SageAttention `v2.2.0` 固定并验证 commit
+  `eb615cf6cf4d221338033340ee2de1c37fbdba4a`，不再允许 Action 构建任意分支。
+- 使用 detached commit 构建，并禁用 Git checkout hooks。
+- CUDA 13.0 / Ubuntu 22.04 基础镜像固定到不可变 digest。
+- builder 中的 pip、setuptools、wheel、packaging、ninja、auditwheel 和
+  pyelftools 固定版本并校验 SHA256；版本范围与上游 `pyproject.toml` 对齐。
+- builder 缓存指纹包含基础镜像、Dockerfile 和依赖锁文件。
+- GitHub Actions 固定到完整 commit SHA。
+- `.dockerignore` 增加 Multi-SM 产物与 Python 缓存目录。
+
 ## 2026-09-21：跟随 ComfyUI Release 的构建流水线
 
 本次调整用于让 SageAttention wheel 与 ComfyUI 使用的 Python、PyTorch 和

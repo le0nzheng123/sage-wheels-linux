@@ -14,11 +14,15 @@
 
 ```text
 SageAttention  2.2.0
+Source commit  eb615cf6cf4d221338033340ee2de1c37fbdba4a
 Python         3.13
 PyTorch        2.13.0+cu130
 CUDA Toolkit   13.0
 系统基线        Ubuntu 22.04 / Linux
 ```
+
+构建脚本会验证 `v2.2.0` 仍然指向上述 commit；tag 被移动或输入未审核版本时会
+立即停止。CUDA 基础镜像固定到 digest，builder 工具依赖固定版本并校验 SHA256。
 
 | SM | GPU 示例 | 默认 Release |
 |---:|---|---|

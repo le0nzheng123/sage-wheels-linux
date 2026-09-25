@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Shell 语法检查
         shell: bash
@@ -41,3 +41,44 @@ jobs:
       - name: Python 语法检查
         shell: bash
         run: python -m py_compile verify-multi-sm-wheel.py
+
+      - name: 供应链锁定检查
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expected_sage_commit="eb615cf6cf4d221338033340ee2de1c37fbdba4a"
+          actual_sage_commit="$(
+            git ls-remote https://github.com/thu-ml/SageAttention.git refs/tags/v2.2.0 \
+              | awk '{print $1}'
+          )"
+          [ "$actual_sage_commit" = "$expected_sage_commit" ] || {
+            echo "SageAttention v2.2.0 tag moved: $actual_sage_commit" >&2
+            exit 1
+          }
+
+          action_refs="$(
+            sed -nE 's/^[[:space:]]*uses:[[:space:]]*[^@]+@([^ #]+).*/\1/p' \
+              .github/workflows/*.yml
+          )"
+          invalid_action_refs="$(grep -Ev '^[0-9a-f]{40}$' <<< "$action_refs" || true)"
+          [ -z "$invalid_action_refs" ] || {
+            echo "GitHub Actions must use full commit SHAs:" >&2
+            echo "$invalid_action_refs" >&2
+            exit 1
+          }
+
+          grep -Eq '^ARG BASE_IMAGE=.*@sha256:[0-9a-f]{64}$' \
+            .github/docker/Dockerfile.py313
+
+          download_dir="$(mktemp -d)"
+          python -m pip download \
+            --disable-pip-version-check \
+            --dest "$download_dir" \
+            --only-binary=:all: \
+            --platform manylinux2014_x86_64 \
+            --python-version 3.13 \
+            --implementation cp \
+            --abi cp313 \
+            --require-hashes \
+            --requirement .github/docker/requirements-builder.txt

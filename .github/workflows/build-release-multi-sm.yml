@@ -12,10 +12,12 @@ on:
           - "2.13.0"
           - "2.14.0"
       sage_ref:
-        description: "SageAttention 版本或 commit"
+        description: "SageAttention 已审核版本"
         required: true
         default: "v2.2.0"
-        type: string
+        type: choice
+        options:
+          - "v2.2.0"
       sm_list:
         description: "写入同一个 wheel 的 GPU 架构，空格分隔"
         required: true
@@ -54,7 +56,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: 解析并校验构建配置
         env:
@@ -71,7 +73,10 @@ jobs:
           max_jobs="${INPUT_MAX_JOBS:-1}"
 
           [[ "$torch_version" =~ ^2\.(13|14)\.0$ ]] || { echo "Invalid torch_version" >&2; exit 1; }
-          [[ "$sage_ref" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "Invalid sage_ref" >&2; exit 1; }
+          case "$sage_ref" in
+            v2.2.0) sage_commit="eb615cf6cf4d221338033340ee2de1c37fbdba4a" ;;
+            *) echo "Unapproved sage_ref" >&2; exit 1 ;;
+          esac
           [[ "$sm_list" =~ ^(80|86|89|90|120)(\ (80|86|89|90|120))*$ ]] || { echo "Invalid sm_list" >&2; exit 1; }
           [[ "$max_jobs" =~ ^(1|2|4)$ ]] || { echo "Invalid max_jobs" >&2; exit 1; }
 
@@ -89,6 +94,7 @@ jobs:
           {
             echo "TORCH_VER=$torch_version"
             echo "SAGE_REF=$sage_ref"
+            echo "SAGE_COMMIT=$sage_commit"
             echo "SM_LIST=$sm_list"
             echo "SM_LABEL=$sm_label"
             echo "MAX_JOBS=$max_jobs"
@@ -119,6 +125,7 @@ jobs:
           BUILD_BACKEND=docker \
           BASE_IMAGE="$BUILD_IMAGE" \
           SAGE_REF="$SAGE_REF" \
+          SAGE_COMMIT="$SAGE_COMMIT" \
           TORCH_VER="$TORCH_VER" \
           CUDA_TAG="$CUDA_TAG" \
           PY_TAG="$PY_TAG" \
@@ -163,7 +170,7 @@ jobs:
             "
 
       - name: 上传构建产物
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sageattention-linux-multi-sm-wheel
           path: dist-multi-sm/
@@ -180,7 +187,7 @@ jobs:
 
     steps:
       - name: 下载构建产物
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sageattention-linux-multi-sm-wheel
           path: dist-multi-sm
@@ -203,6 +210,7 @@ jobs:
           torch_version="${INPUT_TORCH_VERSION:-2.13.0}"
           release_tag="${INPUT_RELEASE_TAG:-}"
           sm_list="${INPUT_SM_LIST:-80 86 89}"
+          sage_commit="eb615cf6cf4d221338033340ee2de1c37fbdba4a"
 
           [[ "$sage_version" =~ ^[0-9]+(\.[0-9]+)+$ ]] || { echo "Unable to detect SageAttention version" >&2; exit 1; }
           [[ "$torch_version" =~ ^2\.(13|14)\.0$ ]] || { echo "Invalid torch_version" >&2; exit 1; }
@@ -233,5 +241,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "$release_tag" \
             --target "$GITHUB_SHA" \
-            --notes "One Linux Multi-SM wheel: SageAttention ${sage_version}; PyTorch ${torch_version}+cu130; Python 3.13; embedded SM ${sm_list}. Built on Ubuntu 22.04." \
+            --notes "One Linux Multi-SM wheel: SageAttention ${sage_version} @ ${sage_commit}; PyTorch ${torch_version}+cu130; Python 3.13; embedded SM ${sm_list}. Built on Ubuntu 22.04." \
             dist-multi-sm/*
